@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Système de Classement Elo (Firebase)</title>
+    <!-- Chargement de Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Configuration des polices et du thème Tailwind -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        'primary': '#4f46e5', // Indigo 600
+                        'secondary': '#10b981', // Emerald 500
+                        'background': '#f9fafb', // Gray 50
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Animation simple de chargement pour le spinner */
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .animate-spin-slow {
+            animation: spin 3s linear infinite;
+        }
+        /* Style pour masquer le spinner après le chargement initial */
+        #loading-spinner.hidden {
+            display: none;
+        }
+    </style>
+    
+    <script type="module">
+        // --- Firebase Imports ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, setPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { 
+            getFirestore, doc, setDoc, updateDoc, deleteDoc, 
+            onSnapshot, collection, query, getDoc, setLogLevel
+        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Variables
+        let players = {}; // Map to store players: { id: { id, name, elo, ... } }
+        let isAdmin = false;
+        let confirmationCallback = null; // Global variable for confirmation callback
+        let db = null;
+        let auth = null;
+        let currentUserId = null;
+        let isAuthReady = false;
+
+        // Constants
+        const INITIAL_ELO = 1500;
+        const K_FACTOR = 32;
+        const ADMIN_PASSWORD = "0000";
+
+        // --- Firebase Setup ---
+
+        /**
+         * Initializes Firebase and authenticates the user.
+         */
+        async function initializeFirebase() {
+            try {
+                // Get global Canvas environment variables
+                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+                const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                
+                if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
+                    throw new Error("Firebase configuration non trouvée.");
+                }
+
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                
+                // Set Firestore logging to debug mode
+                setLogLevel('Debug'); 
+
+                // Use session persistence for authentication
+                await setPersistence(auth, browserSessionPersistence);
+                
+                // Auth Listener and Sign-In
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        currentUserId = user.uid;
+                        isAuthReady = true;
+                        document.getElementById('user-id-display').textContent = `ID Utilisateur: ${currentUserId.substring(0, 8)}...`;
+                        listenForPlayers(appId); // Start listening for data once authenticated
+                    } else {
+                        // Sign in using the token or anonymously if token is missing
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } else {
+                            // Fallback for local testing if token is not available
+                            await signInAnonymously(auth);
+                        }
+                    }
+                    // Initial rendering after auth attempt
+                    updateAdminButtons(); 
+                });
+
+            } catch (error) {
+                console.error("Erreur d'initialisation de Firebase ou d'authentification:", error);
+                document.getElementById('loading-spinner').innerHTML = `<p class="text-red-500">Erreur lors de la connexion à la base de données.</p>`;
+            }
+        }
+        
+        /**
+         * Returns the public collection path for the Elo players.
+         */
+        function getCollectionPath(appId) {
+            return `artifacts/${appId}/public/data/elo_players`;
+        }
+        
+        /**
+         * Establishes a real-time listener for the players collection.
+         */
+        function listenForPlayers(appId) {
+            const collectionPath = getCollectionPath(appId);
+            const playersColRef = collection(db, collectionPath);
+            
+            onSnapshot(playersColRef, (snapshot) => {
+                const newPlayers = {};
+                snapshot.forEach(doc => {
+                    newPlayers[doc.id] = doc.data();
+                });
+                players = newPlayers;
+                renderAll(); // Rerender UI on any data change
+            }, (error) => {
+                console.error("Erreur d'écoute de la collection Firestore:", error);
+                // Use the custom message box implementation instead of alert()
+                showErrorMessage("Erreur de base de données", "Impossible de se connecter au classement en temps réel.");
+            });
+        }
+
+
+        // --- Elo Calculation & Utilities ---
+
+        /**
+         * Calculates the expected score of Player A against Player B.
+         */
+        function calculateExpectedScore(Ra, Rb) {
+            return 1 / (1 + Math.pow(10, (Rb - Ra) / 400));
+        }
+
+        /**
+         * Calculates the new Elo ratings after a match.
+         */
+        function calculateNewElos(Ra, Rb) {
+            const Ea = calculateExpectedScore(Ra, Rb);
+            const Eb = calculateExpectedScore(Rb, Ra);
+            
+            // Score Sa = 1 (Win for A), Sb = 0 (Loss for B)
+            const newRa = Ra + K_FACTOR * (1 - Ea);
+            const newRb = Rb + K_FACTOR * (0 - Eb);
+
+            return { newRa: Math.round(newRa), newRb: Math.round(newRb) };
+        }
+
+        /**
+         * Converts player map to a sorted array for ranking.
+         */
+        function getSortedRanking(playerMap) {
+            // Sort by Elo descending, then Name ascending
+            return Object.values(playerMap)
+                .sort((a, b) => b.elo - a.elo || a.name.localeCompare(b.name))
+                .map((p, index) => ({
+                    ...p,
+                    rank: index + 1
+                }));
+        }
+
+
+        // --- UI Rendering ---
+
+        /**
+         * Renders the main ranking table.
+         */
+        function renderRanking() {
+            const rankingList = document.getElementById('ranking-list');
+            if (!rankingList) return;
+
+            const sortedPlayers = getSortedRanking(players);
+
+            if (Object.keys(players).length === 0) {
+                rankingList.innerHTML = '<p class="text-gray-500 text-center py-8">Aucun joueur dans le classement pour le moment. Connectez-vous en Admin pour en ajouter.</p>';
+                return;
+            }
+
+            rankingList.innerHTML = `
+                <table class="min-w-full divide-y divide-gray-200 shadow-xl rounded-lg overflow-hidden">
+                    <thead class="bg-primary/90 text-white">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider">#</th>
+                            <th class="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider">Nom du Joueur</th>
+                            <th class="px-6 py-3 text-right text-xs font-bold uppercase tracking-wider">Elo</th>
+                            <th class="px-6 py-3 text-right text-xs font-bold uppercase tracking-wider hidden sm:table-cell">Victoires</th>
+                            <th class="px-6 py-3 text-right text-xs font-bold uppercase tracking-wider hidden sm:table-cell">Défaites</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-100">
+                        ${sortedPlayers.map(p => `
+                            <tr class="hover:bg-indigo-50 transition duration-150 ease-in-out">
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium ${p.rank <= 3 ? 'text-primary' : 'text-gray-900'}">
+                                    ${p.rank === 1 ? '🥇' : p.rank === 2 ? '🥈' : p.rank === 3 ? '🥉' : p.rank}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${p.name}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-bold text-gray-900">${p.elo}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500 hidden sm:table-cell">${p.wins}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500 hidden sm:table-cell">${p.losses}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        /**
+         * Updates the Admin UI elements based on isAdmin state.
+         */
+        function updateAdminButtons() {
+            const adminLogin = document.getElementById('admin-login-container');
+            const matchRecorder = document.getElementById('match-recorder-container');
+            const adminPencil = document.getElementById('admin-pencil');
+            const firebaseStatus = document.getElementById('firebase-status');
+
+            if (db && isAuthReady) {
+                firebaseStatus.classList.remove('bg-yellow-500');
+                firebaseStatus.classList.add('bg-green-500');
+                firebaseStatus.textContent = '☁️ Connecté (Firebase)';
+            } else {
+                firebaseStatus.classList.remove('bg-green-500');
+                firebaseStatus.classList.add('bg-yellow-500');
+                firebaseStatus.textContent = '⏳ Connexion...';
+            }
+
+
+            if (isAdmin) {
+                adminLogin.classList.add('hidden');
+                matchRecorder.classList.remove('hidden');
+                adminPencil.classList.remove('hidden');
+            } else {
+                adminLogin.classList.remove('hidden');
+                matchRecorder.classList.add('hidden');
+                adminPencil.classList.add('hidden');
+            }
+            renderMatchRecorder();
+            renderPlayerManager();
+        }
+
+        /**
+         * Renders the match recording form in Admin mode.
+         */
+        function renderMatchRecorder() {
+            const matchRecorder = document.getElementById('match-recorder');
+            const sortedPlayers = getSortedRanking(players);
+
+            if (sortedPlayers.length < 2) {
+                matchRecorder.innerHTML = '<p class="text-sm text-yellow-600">Ajoutez au moins deux joueurs pour enregistrer un match.</p>';
+                return;
+            }
+
+            const optionsHtml = sortedPlayers.map(p => `<option value="${p.id}">${p.name} (${p.elo})</option>`).join('');
+
+            matchRecorder.innerHTML = `
+                <h3 class="text-xl font-semibold mb-4 text-primary">Enregistrer un Match</h3>
+                <div class="space-y-4">
+                    <div>
+                        <label for="winner-select" class="block text-sm font-medium text-gray-700">Gagnant :</label>
+                        <select id="winner-select" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md shadow-sm">
+                            ${optionsHtml}
+                        </select>
+                    </div>
+                    <div>
+                        <label for="loser-select" class="block text-sm font-medium text-gray-700">Perdant :</label>
+                        <select id="loser-select" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md shadow-sm">
+                            ${optionsHtml}
+                        </select>
+                    </div>
+                    <button id="record-match-btn" onclick="recordMatch()" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-secondary hover:bg-emerald-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-secondary transition duration-150">
+                        Enregistrer le Résultat
+                    </button>
+                    <div id="match-message" class="text-sm text-center"></div>
+                </div>
+            `;
+        }
+
+        /**
+         * Renders the player management modal content.
+         */
+        function renderPlayerManager() {
+            const playerListContainer = document.getElementById('player-list-container');
+            const sortedPlayers = getSortedRanking(players);
+
+            // Populate current players for rename/remove
+            playerListContainer.innerHTML = sortedPlayers.map(p => `
+                <li class="flex items-center justify-between py-2 border-b border-gray-100">
+                    <span class="text-gray-700">${p.name} (Elo: ${p.elo})</span>
+                    <div class="space-x-2">
+                        <button onclick="document.getElementById('rename-player-id').value='${p.id}'; document.getElementById('rename-player-name').value='${p.name}'; toggleRenameModal(true);"
+                                class="text-blue-500 hover:text-blue-700 p-1 rounded-full hover:bg-blue-100 transition duration-150" title="Renommer">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                        </button>
+                        <button onclick="confirmRemovePlayer('${p.id}', '${p.name}')"
+                                class="text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-100 transition duration-150" title="Supprimer">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                    </div>
+                </li>
+            `).join('') || '<p class="text-gray-500">Aucun joueur à gérer.</p>';
+        }
+
+        /**
+         * Renders all dynamic parts of the UI.
+         */
+        function renderAll() {
+             renderRanking();
+             renderMatchRecorder();
+             renderPlayerManager();
+             updateAdminButtons(); // Update status and buttons after data load
+             document.getElementById('loading-spinner').classList.add('hidden');
+        }
+
+        // --- Modal & Message Handling ---
+
+        /**
+         * Toggles the visibility of any modal.
+         */
+        function toggleModal(modalId, show) {
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                if (show) {
+                    modal.classList.remove('hidden');
+                } else {
+                    modal.classList.add('hidden');
+                }
+            }
+        }
+        
+        /**
+         * Shows the generic confirmation modal.
+         */
+        function showConfirmationModal(message, callback) {
+            confirmationCallback = callback;
+            document.getElementById('confirmation-message').textContent = message;
+            toggleModal('confirmation-modal', true);
+        }
+
+        /**
+         * Shows the generic error/info message modal.
+         */
+        function showErrorMessage(title, message) {
+            document.getElementById('error-modal-title').textContent = title;
+            document.getElementById('error-modal-message').textContent = message;
+            toggleModal('error-modal', true);
+        }
+
+        // Expose functions to global scope for HTML event handlers (onclick)
+        window.togglePlayerManagementModal = (show) => toggleModal('player-management-modal', show);
+        window.toggleRenameModal = (show) => toggleModal('rename-modal', show);
+        window.toggleAdminLoginModal = (show) => toggleModal('admin-login-modal', show);
+        window.toggleErrorModal = (show) => toggleModal('error-modal', show);
+        
+        /**
+         * Executes the confirmation callback if confirmed and hides the modal.
+         */
+        window.confirmAction = (confirmed) => {
+            toggleModal('confirmation-modal', false);
+            if (confirmed && confirmationCallback) {
+                confirmationCallback();
+            }
+            confirmationCallback = null;
+        }
+
+
+        // --- Admin Actions (Firebase Interactions) ---
+
+        /**
+         * Handles the Admin Login process.
+         */
+        window.handleAdminLogin = function() {
+            const passwordInput = document.getElementById('admin-password');
+            const password = passwordInput.value;
+            const messageElement = document.getElementById('admin-login-message');
+
+            if (password === ADMIN_PASSWORD) {
+                isAdmin = true;
+                messageElement.textContent = "Mode Administrateur activé.";
+                messageElement.className = "text-green-600 text-sm";
+                passwordInput.value = '';
+                toggleModal('admin-login-modal', false);
+                updateAdminButtons();
+            } else {
+                isAdmin = false;
+                messageElement.textContent = "Mot de passe incorrect.";
+                messageElement.className = "text-red-600 text-sm";
+            }
+        }
+
+        /**
+         * Adds a new player to Firestore.
+         */
+        window.addPlayer = async function() {
+            if (!db || !isAuthReady) return showErrorMessage("Erreur", "Base de données non initialisée.");
+
+            const playerNameInput = document.getElementById('new-player-name');
+            const playerName = playerNameInput.value.trim();
+            const messageElement = document.getElementById('player-management-message');
+
+            if (!playerName) {
+                messageElement.textContent = "Veuillez entrer un nom de joueur.";
+                messageElement.className = "text-red-600 text-sm";
+                return;
+            }
+
+            if (Object.values(players).some(p => p.name.toLowerCase() === playerName.toLowerCase())) {
+                messageElement.textContent = "Ce joueur existe déjà.";
+                messageElement.className = "text-red-600 text-sm";
+                return;
+            }
+
+            try {
+                const newId = crypto.randomUUID(); // Generate unique ID
+                const newPlayer = {
+                    id: newId,
+                    name: playerName,
+                    elo: INITIAL_ELO,
+                    wins: 0,
+                    losses: 0,
+                    matches: 0,
+                    createdAt: new Date().getTime()
+                };
+                
+                const playerRef = doc(db, getCollectionPath(__app_id), newId);
+                await setDoc(playerRef, newPlayer);
+
+                playerNameInput.value = '';
+                messageElement.textContent = `Joueur '${playerName}' ajouté avec succès! (Synchronisé)`;
+                messageElement.className = "text-green-600 text-sm";
+            } catch (error) {
+                console.error("Erreur Firestore lors de l'ajout du joueur:", error);
+                messageElement.textContent = "Erreur: Échec de l'ajout du joueur à la base de données.";
+                messageElement.className = "text-red-600 text-sm";
+            }
+        }
+
+        /**
+         * Prompts and handles player removal confirmation using the custom modal.
+         */
+        window.confirmRemovePlayer = (playerId, playerName) => {
+            showConfirmationModal(
+                `Êtes-vous sûr de vouloir supprimer le joueur '${playerName}'? Cette action est irréversible et synchronisée.`,
+                () => removePlayer(playerId)
+            );
+        };
+
+
+        /**
+         * Removes a player from Firestore.
+         */
+        async function removePlayer(playerId) {
+            if (!db || !isAuthReady) return showErrorMessage("Erreur", "Base de données non initialisée.");
+
+            const messageElement = document.getElementById('player-management-message');
+            
+            if (!players[playerId]) {
+                messageElement.textContent = "Erreur: Joueur introuvable.";
+                messageElement.className = "text-red-600 text-sm";
+                return;
+            }
+
+            try {
+                const playerRef = doc(db, getCollectionPath(__app_id), playerId);
+                await deleteDoc(playerRef);
+                
+                messageElement.textContent = "Joueur supprimé avec succès! (Synchronisé)";
+                messageElement.className = "text-green-600 text-sm";
+            } catch (error) {
+                 console.error("Erreur Firestore lors de la suppression du joueur:", error);
+                 messageElement.textContent = "Erreur: Échec de la suppression du joueur de la base de données.";
+                 messageElement.className = "text-red-600 text-sm";
+            }
+        }
+
+        /**
+         * Renames a player in Firestore.
+         */
+        window.renamePlayer = async function() {
+            if (!db || !isAuthReady) return showErrorMessage("Erreur", "Base de données non initialisée.");
+
+            const playerId = document.getElementById('rename-player-id').value;
+            const newName = document.getElementById('rename-player-name').value.trim();
+            const messageElement = document.getElementById('rename-modal-message');
+
+            if (!newName) {
+                messageElement.textContent = "Veuillez entrer un nouveau nom.";
+                messageElement.className = "text-red-600 text-sm";
+                return;
+            }
+
+            if (Object.values(players).some(p => p.name.toLowerCase() === newName.toLowerCase() && p.id !== playerId)) {
+                 messageElement.textContent = "Un autre joueur porte déjà ce nom.";
+                 messageElement.className = "text-red-600 text-sm";
+                 return;
+             }
+
+            if (!players[playerId]) {
+                 messageElement.textContent = "Erreur: Joueur introuvable pour le renommage.";
+                 messageElement.className = "text-red-600 text-sm";
+                 return;
+            }
+            
+            try {
+                const playerRef = doc(db, getCollectionPath(__app_id), playerId);
+                await updateDoc(playerRef, { name: newName });
+
+                messageElement.textContent = `Joueur renommé en '${newName}' avec succès! (Synchronisé)`;
+                messageElement.className = "text-green-600 text-sm";
+                setTimeout(() => toggleModal('rename-modal', false), 1500); // Close after success
+            } catch (error) {
+                console.error("Erreur Firestore lors du renommage du joueur:", error);
+                messageElement.textContent = "Erreur: Échec du renommage du joueur dans la base de données.";
+                messageElement.className = "text-red-600 text-sm";
+            }
+        }
+
+        /**
+         * Handles the recording of a match result and updates player Elo in Firestore.
+         */
+        window.recordMatch = async function() {
+            if (!db || !isAuthReady) return showErrorMessage("Erreur", "Base de données non initialisée.");
+            
+            const winnerId = document.getElementById('winner-select').value;
+            const loserId = document.getElementById('loser-select').value;
+            const messageElement = document.getElementById('match-message');
+
+            if (winnerId === loserId) {
+                messageElement.textContent = "Le gagnant et le perdant doivent être différents.";
+                messageElement.className = "text-red-600 text-sm";
+                return;
+            }
+            
+            const winnerData = players[winnerId];
+            const loserData = players[loserId];
+
+            if (!winnerData || !loserData) {
+                messageElement.textContent = "Erreur: Joueur introuvable.";
+                messageElement.className = "text-red-600 text-sm";
+                return;
+            }
+
+            try {
+                // Calculate new Elos
+                const { newRa, newRb } = calculateNewElos(winnerData.elo, loserData.elo);
+
+                // Calculate Elo change
+                const eloChangeWinner = newRa - winnerData.elo;
+                const eloChangeLoser = newRb - loserData.elo;
+                
+                const collectionPath = getCollectionPath(__app_id);
+                
+                // Transaction-like update (simultaneous writes for atomic feel)
+                const winnerUpdate = updateDoc(doc(db, collectionPath, winnerId), {
+                    elo: newRa,
+                    wins: winnerData.wins + 1,
+                    matches: winnerData.matches + 1
+                });
+
+                const loserUpdate = updateDoc(doc(db, collectionPath, loserId), {
+                    elo: newRb,
+                    losses: loserData.losses + 1,
+                    matches: loserData.matches + 1
+                });
+                
+                await Promise.all([winnerUpdate, loserUpdate]);
+
+                messageElement.textContent = `Match enregistré! ${winnerData.name} gagne (+${eloChangeWinner}) contre ${loserData.name} (${eloChangeLoser}).`;
+                messageElement.className = "text-green-600 font-medium";
+                setTimeout(() => messageElement.textContent = '', 5000); // Clear message after 5 seconds
+
+            } catch (e) {
+                console.error("Erreur Firestore lors de l'enregistrement du match: ", e);
+                showErrorMessage("Erreur de Sauvegarde", "Échec de l'enregistrement du match dans la base de données.");
+                messageElement.textContent = `Erreur lors de l'enregistrement du match.`;
+                messageElement.className = "text-red-600 text-sm";
+            }
+        }
+
+
+        /**
+         * Initializes the application: loads data and renders UI.
+         */
+        function initializeApplication() {
+            // Start Firebase setup and listening process
+            initializeFirebase(); 
+        }
+
+        // Initialize the app when the window loads
+        window.onload = initializeApplication;
+    </script>
+</head>
+
+<body class="bg-background min-h-screen font-sans">
+
+    <!-- Header & Admin Controls -->
+    <header class="bg-white shadow-md p-4 sticky top-0 z-10">
+        <div class="max-w-7xl mx-auto flex justify-between items-center">
+            <h1 class="text-2xl font-bold text-primary">Classement Elo (Partagé)</h1>
+
+            <!-- Admin Panel and Login -->
+            <div class="flex items-center space-x-4">
+                
+                <!-- Firebase Status & User ID -->
+                <div class="flex flex-col items-end space-y-1">
+                    <span id="firebase-status" class="bg-yellow-500 text-white text-xs font-medium px-2.5 py-0.5 rounded-full shadow-md transition duration-300">
+                        ⏳ Connexion...
+                    </span>
+                    <span id="user-id-display" class="text-gray-500 text-xs font-mono">
+                        ID Utilisateur: En attente...
+                    </span>
+                </div>
+                
+                <!-- Admin Pencil Icon (Player Management) -->
+                <button id="admin-pencil" onclick="togglePlayerManagementModal(true)" 
+                        class="p-2 rounded-full bg-primary text-white hover:bg-primary/80 transition duration-150 shadow-lg hidden" 
+                        title="Gérer les joueurs">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
+                </button>
+
+                <!-- Admin Login Button/Input -->
+                <div id="admin-login-container">
+                    <button onclick="toggleAdminLoginModal(true)" 
+                            class="px-4 py-2 bg-indigo-500 text-white text-sm font-medium rounded-md hover:bg-indigo-600 transition duration-150 shadow-md">
+                        Admin
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+        
+        <!-- Loading Spinner (will hide after initial load) -->
+        <div id="loading-spinner" class="flex justify-center items-center py-20">
+            <svg class="animate-spin-slow h-10 w-10 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            <span class="ml-3 text-lg text-gray-600">Connexion à Firebase et chargement des données...</span>
+        </div>
+
+        <!-- Ranking Table Container -->
+        <section id="ranking-list" class="mt-8">
+            <!-- Ranking table will be rendered here by JS -->
+        </section>
+
+        <!-- Match Recorder (Admin Only) -->
+        <section id="match-recorder-container" class="mt-12 hidden max-w-lg mx-auto bg-white p-6 rounded-xl shadow-2xl border border-gray-100">
+            <div id="match-recorder">
+                <!-- Match recorder form will be rendered here by JS -->
+            </div>
+        </section>
+    </main>
+
+    <!-- --- Modals --- -->
+
+    <!-- Admin Login Modal -->
+    <div id="admin-login-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full hidden z-50">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Connexion Admin</h3>
+            <div class="mt-2">
+                <input type="password" id="admin-password" placeholder="Mot de passe" 
+                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                <p id="admin-login-message" class="mt-2 text-sm text-center"></p>
+            </div>
+            <div class="mt-5 sm:mt-6 sm:grid sm:grid-flow-row-dense sm:grid-cols-2 sm:gap-3">
+                <button onclick="handleAdminLogin()" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary text-base font-medium text-white hover:bg-primary/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary sm:col-start-2 sm:text-sm transition duration-150">
+                    Se Connecter
+                </button>
+                <button onclick="toggleAdminLoginModal(false)" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:col-start-1 sm:text-sm transition duration-150">
+                    Annuler
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Player Management Modal (Pencil Click) -->
+    <div id="player-management-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full hidden z-50">
+        <div class="relative top-10 mx-auto p-6 border w-11/12 max-w-2xl shadow-2xl rounded-lg bg-white">
+            <h3 class="text-2xl font-extrabold text-primary border-b pb-2 mb-4">Gestion des Joueurs</h3>
+            <button onclick="togglePlayerManagementModal(false)" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Add Player Section -->
+                <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <h4 class="text-xl font-semibold mb-3 text-secondary">Ajouter un Nouveau Joueur</h4>
+                    <input type="text" id="new-player-name" placeholder="Nom du joueur" 
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-secondary focus:border-secondary sm:text-sm">
+                    <button onclick="addPlayer()" class="mt-3 w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-secondary text-base font-medium text-white hover:bg-emerald-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-secondary sm:text-sm transition duration-150">
+                        Ajouter (Elo Initial: ${INITIAL_ELO})
+                    </button>
+                </div>
+
+                <!-- Player List Section -->
+                <div class="p-4 bg-white rounded-lg border border-gray-200">
+                    <h4 class="text-xl font-semibold mb-3 text-primary">Liste & Actions (Renommer/Supprimer)</h4>
+                    <ul id="player-list-container" class="max-h-60 overflow-y-auto space-y-1">
+                        <!-- Player list will be rendered here by JS -->
+                    </ul>
+                </div>
+            </div>
+             <p id="player-management-message" class="mt-4 text-center text-sm font-medium"></p>
+        </div>
+    </div>
+    
+    <!-- Rename Player Modal -->
+    <div id="rename-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full hidden z-50">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Renommer Joueur</h3>
+            <div class="mt-2">
+                <input type="hidden" id="rename-player-id">
+                <label for="rename-player-name" class="block text-sm font-medium text-gray-700">Nouveau Nom:</label>
+                <input type="text" id="rename-player-name" 
+                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                <p id="rename-modal-message" class="mt-2 text-sm text-center"></p>
+            </div>
+            <div class="mt-5 sm:mt-6 sm:grid sm:grid-flow-row-dense sm:grid-cols-2 sm:gap-3">
+                <button onclick="renamePlayer()" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary text-base font-medium text-white hover:bg-primary/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary sm:col-start-2 sm:text-sm transition duration-150">
+                    Confirmer
+                </button>
+                <button onclick="toggleRenameModal(false)" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:col-start-1 sm:text-sm transition duration-150">
+                    Annuler
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Generic Confirmation Modal (Replaces standard confirm()) -->
+    <div id="confirmation-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full hidden z-50">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Confirmation Requise</h3>
+            <p id="confirmation-message" class="mt-2 text-sm text-gray-700"></p>
+            <div class="mt-5 sm:mt-6 sm:grid sm:grid-flow-row-dense sm:grid-cols-2 sm:gap-3">
+                <button onclick="confirmAction(true)" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:col-start-2 sm:text-sm transition duration-150">
+                    Confirmer
+                </button>
+                <button onclick="confirmAction(false)" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:col-start-1 sm:text-sm transition duration-150">
+                    Annuler
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Generic Error/Info Modal (Replaces alerts) -->
+    <div id="error-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full hidden z-50">
+        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <h3 id="error-modal-title" class="text-lg font-medium leading-6 text-red-600 mb-4">Erreur</h3>
+            <p id="error-modal-message" class="mt-2 text-sm text-gray-700"></p>
+            <div class="mt-5 sm:mt-6">
+                <button onclick="toggleErrorModal(false)" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary text-base font-medium text-white hover:bg-primary/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary sm:text-sm transition duration-150">
+                    Fermer
+                </button>
+            </div>
+        </div>
+    </div>
+    
+</body>
+</html>
