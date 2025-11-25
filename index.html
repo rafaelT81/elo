@@ -6,6 +6,21 @@
     <title>Système de Classement Elo (Firebase)</title>
     <!-- Chargement de Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Import des librairies Firebase SDK v11.6.1 (ES Modules) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, deleteDoc, collection, query, onSnapshot, runTransaction, getDoc, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Expose Firebase functions globally for use in the main script block
+        window.firebase = {
+            initializeApp,
+            getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged,
+            getFirestore, doc, setDoc, deleteDoc, collection, query, onSnapshot, runTransaction, getDoc, setLogLevel
+        };
+    </script>
+    
     <!-- Configuration des polices et du thème Tailwind -->
     <script>
         tailwind.config = {
@@ -36,113 +51,144 @@
         #loading-spinner.hidden {
             display: none;
         }
+        /* Style pour les messages de l'interface utilisateur */
+        .ui-message {
+            transition: opacity 0.5s ease-out;
+            opacity: 1;
+        }
+        .ui-message.fade-out {
+            opacity: 0;
+        }
     </style>
     
-    <script type="module">
-        // --- Firebase Imports ---
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, setPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { 
-            getFirestore, doc, setDoc, updateDoc, deleteDoc, 
-            onSnapshot, collection, query, getDoc, setLogLevel
-        } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
+    <script type="text/javascript">
         // Global Variables
         let players = {}; // Map to store players: { id: { id, name, elo, ... } }
         let isAdmin = false;
         let confirmationCallback = null; // Global variable for confirmation callback
-        let db = null;
-        let auth = null;
-        let currentUserId = null;
-        let isAuthReady = false;
+        let firebaseReady = false; // Indicates if Auth and Firestore are initialized
+
+        // Firebase Instances
+        let db;
+        let auth;
+        let userId = 'unknown';
 
         // Constants
         const INITIAL_ELO = 1500;
         const K_FACTOR = 32;
-        const ADMIN_PASSWORD = "0000";
+        const ADMIN_PASSWORD = "0000"; // Mot de passe admin local (ne sera pas dans Firestore)
 
-        // --- Firebase Setup ---
+        // --- Configuration Firebase (Intégrée avec vos clés !) ---
 
         /**
-         * Initializes Firebase and authenticates the user.
+         * Returns the collection path for the Elo players.
+         * Using a top-level collection name 'elo_players' for simplicity outside Canvas.
+         */
+        function getCollectionPath() {
+            return `elo_players`; // Collection à créer dans Firestore
+        }
+        
+        // Configuration Firebase fournie par l'utilisateur
+        const firebaseConfig = {
+            apiKey: "AIzaSyDWBh3YC57FSEzzd66JhDNwgLn0S9POVtc",
+            authDomain: "classement-elo.firebaseapp.com",
+            projectId: "classement-elo",
+            storageBucket: "classement-elo.firebasestorage.app",
+            messagingSenderId: "240751765604",
+            appId: "1:240751765604:web:bfc2d16d768cede61b9771",
+            measurementId: "G-FREKR0HF4H"
+        };
+        const appId = firebaseConfig.projectId; // Utiliser l'ID du projet comme ID d'application
+        const initialAuthToken = null; // Pas de jeton injecté dans un déploiement GitHub
+
+        // --- Firebase Initialization and Data Sync ---
+
+        /**
+         * Initializes Firebase, performs authentication, and sets up the data listener.
          */
         async function initializeFirebase() {
+            const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, getFirestore, onAuthStateChanged, collection, query, onSnapshot, setLogLevel } = window.firebase;
+
+            if (!firebaseConfig || !firebaseConfig.apiKey) {
+                document.getElementById('loading-message').textContent = "Erreur: Configurez vos clés Firebase dans le code !";
+                return;
+            }
+
             try {
-                // Get global Canvas environment variables
-                const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-                const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-                
-                if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
-                    throw new Error("Firebase configuration non trouvée.");
-                }
-
+                // Initialisation des services
                 const app = initializeApp(firebaseConfig);
-                auth = getAuth(app);
                 db = getFirestore(app);
+                auth = getAuth(app);
                 
-                // Set Firestore logging to debug mode
-                setLogLevel('Debug'); 
+                // Active le niveau de log Debug pour voir les activités Firestore
+                // setLogLevel('Debug'); 
 
-                // Use session persistence for authentication
-                await setPersistence(auth, browserSessionPersistence);
+                document.getElementById('loading-message').textContent = "Connexion à Firebase...";
+
+                // 1. Authentification
+                let authPromise;
+                if (initialAuthToken) {
+                    // Tentative d'utilisation du jeton fourni par Canvas
+                    authPromise = signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    // Sinon, connexion anonyme pour obtenir un userId
+                    authPromise = signInAnonymously(auth);
+                }
+                await authPromise;
                 
-                // Auth Listener and Sign-In
-                onAuthStateChanged(auth, async (user) => {
+                // Écoute des changements d'état d'authentification
+                onAuthStateChanged(auth, (user) => {
                     if (user) {
-                        currentUserId = user.uid;
-                        isAuthReady = true;
-                        document.getElementById('user-id-display').textContent = `ID Utilisateur: ${currentUserId.substring(0, 8)}...`;
-                        listenForPlayers(appId); // Start listening for data once authenticated
-                    } else {
-                        // Sign in using the token or anonymously if token is missing
-                        if (initialAuthToken) {
-                            await signInWithCustomToken(auth, initialAuthToken);
-                        } else {
-                            // Fallback for local testing if token is not available
-                            await signInAnonymously(auth);
+                        userId = user.uid;
+                        console.log("Utilisateur authentifié. UID:", userId);
+                        document.getElementById('user-id-display').textContent = `ID Utilisateur: ${userId}`;
+                        
+                        // 2. Synchronisation des données (après l'authentification)
+                        if (!firebaseReady) {
+                            setupFirestoreListener();
+                            firebaseReady = true;
+                            document.getElementById('loading-spinner').classList.add('hidden');
                         }
+                    } else {
+                        console.log("Utilisateur déconnecté (anonyme ou autre).");
                     }
-                    // Initial rendering after auth attempt
-                    updateAdminButtons(); 
                 });
 
             } catch (error) {
-                console.error("Erreur d'initialisation de Firebase ou d'authentification:", error);
-                document.getElementById('loading-spinner').innerHTML = `<p class="text-red-500">Erreur lors de la connexion à la base de données.</p>`;
+                console.error("Erreur d'initialisation Firebase ou d'authentification:", error);
+                document.getElementById('loading-message').textContent = `Erreur de connexion Firebase: ${error.message}`;
             }
         }
-        
+
         /**
-         * Returns the public collection path for the Elo players.
+         * Sets up the real-time listener for the players collection.
          */
-        function getCollectionPath(appId) {
-            return `artifacts/${appId}/public/data/elo_players`;
-        }
-        
-        /**
-         * Establishes a real-time listener for the players collection.
-         */
-        function listenForPlayers(appId) {
-            const collectionPath = getCollectionPath(appId);
-            const playersColRef = collection(db, collectionPath);
+        function setupFirestoreListener() {
+            const { collection, query, onSnapshot } = window.firebase;
             
-            onSnapshot(playersColRef, (snapshot) => {
-                const newPlayers = {};
-                snapshot.forEach(doc => {
-                    newPlayers[doc.id] = doc.data();
+            const playersCollectionRef = collection(db, getCollectionPath());
+            const q = query(playersCollectionRef);
+
+            // Écoute en temps réel des changements
+            onSnapshot(q, (snapshot) => {
+                const updatedPlayers = {};
+                snapshot.forEach((doc) => {
+                    // Firestore stocke l'ID dans doc.id, non dans le document lui-même
+                    updatedPlayers[doc.id] = { id: doc.id, ...doc.data() };
                 });
-                players = newPlayers;
-                renderAll(); // Rerender UI on any data change
+                players = updatedPlayers;
+                console.log("Données de classement synchronisées en temps réel.");
+                renderAll();
             }, (error) => {
-                console.error("Erreur d'écoute de la collection Firestore:", error);
-                // Use the custom message box implementation instead of alert()
-                showErrorMessage("Erreur de base de données", "Impossible de se connecter au classement en temps réel.");
+                console.error("Erreur d'écoute Firestore:", error);
+                // Afficher un message d'erreur à l'utilisateur si possible
+                document.getElementById('match-message').textContent = "Erreur de synchronisation des données.";
+                document.getElementById('match-message').className = "text-red-600 font-medium ui-message";
             });
         }
 
 
-        // --- Elo Calculation & Utilities ---
+        // --- Elo Calculation & Utilities (No Change) ---
 
         /**
          * Calculates the expected score of Player A against Player B.
@@ -169,7 +215,6 @@
          * Converts player map to a sorted array for ranking.
          */
         function getSortedRanking(playerMap) {
-            // Sort by Elo descending, then Name ascending
             return Object.values(playerMap)
                 .sort((a, b) => b.elo - a.elo || a.name.localeCompare(b.name))
                 .map((p, index) => ({
@@ -179,7 +224,7 @@
         }
 
 
-        // --- UI Rendering ---
+        // --- UI Rendering (Mostly Unchanged) ---
 
         /**
          * Renders the main ranking table.
@@ -230,27 +275,22 @@
             const adminLogin = document.getElementById('admin-login-container');
             const matchRecorder = document.getElementById('match-recorder-container');
             const adminPencil = document.getElementById('admin-pencil');
-            const firebaseStatus = document.getElementById('firebase-status');
+            const dbStatus = document.getElementById('db-status');
 
-            if (db && isAuthReady) {
-                firebaseStatus.classList.remove('bg-yellow-500');
-                firebaseStatus.classList.add('bg-green-500');
-                firebaseStatus.textContent = '☁️ Connecté (Firebase)';
-            } else {
-                firebaseStatus.classList.remove('bg-green-500');
-                firebaseStatus.classList.add('bg-yellow-500');
-                firebaseStatus.textContent = '⏳ Connexion...';
-            }
-
+            dbStatus.classList.remove('hidden');
 
             if (isAdmin) {
                 adminLogin.classList.add('hidden');
                 matchRecorder.classList.remove('hidden');
                 adminPencil.classList.remove('hidden');
+                dbStatus.className = "bg-primary text-white text-xs font-medium px-2.5 py-0.5 rounded-full";
+                dbStatus.textContent = "☁️ Mode Admin (Connecté)";
             } else {
                 adminLogin.classList.remove('hidden');
                 matchRecorder.classList.add('hidden');
                 adminPencil.classList.add('hidden');
+                dbStatus.className = "bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded-full";
+                dbStatus.textContent = "☁️ Lecture Seule";
             }
             renderMatchRecorder();
             renderPlayerManager();
@@ -288,7 +328,7 @@
                     <button id="record-match-btn" onclick="recordMatch()" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-secondary hover:bg-emerald-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-secondary transition duration-150">
                         Enregistrer le Résultat
                     </button>
-                    <div id="match-message" class="text-sm text-center"></div>
+                    <div id="match-message" class="text-sm text-center ui-message"></div>
                 </div>
             `;
         }
@@ -325,11 +365,30 @@
              renderRanking();
              renderMatchRecorder();
              renderPlayerManager();
-             updateAdminButtons(); // Update status and buttons after data load
-             document.getElementById('loading-spinner').classList.add('hidden');
+             updateAdminButtons();
         }
 
-        // --- Modal & Message Handling ---
+        /**
+         * Utility function to display success/error messages in the UI.
+         */
+        function showUIMessage(elementId, message, isSuccess = true) {
+            const messageElement = document.getElementById(elementId);
+            if (!messageElement) return;
+
+            messageElement.textContent = message;
+            messageElement.className = `text-sm text-center ui-message ${isSuccess ? 'text-green-600' : 'text-red-600'} font-medium`;
+            
+            // Fade out the message after 5 seconds
+            setTimeout(() => {
+                messageElement.classList.add('fade-out');
+                setTimeout(() => {
+                    messageElement.textContent = '';
+                    messageElement.classList.remove('fade-out');
+                }, 500); // Wait for transition to finish
+            }, 5000);
+        }
+
+        // --- Modal Handling (Unchanged) ---
 
         /**
          * Toggles the visibility of any modal.
@@ -354,20 +413,10 @@
             toggleModal('confirmation-modal', true);
         }
 
-        /**
-         * Shows the generic error/info message modal.
-         */
-        function showErrorMessage(title, message) {
-            document.getElementById('error-modal-title').textContent = title;
-            document.getElementById('error-modal-message').textContent = message;
-            toggleModal('error-modal', true);
-        }
-
         // Expose functions to global scope for HTML event handlers (onclick)
         window.togglePlayerManagementModal = (show) => toggleModal('player-management-modal', show);
         window.toggleRenameModal = (show) => toggleModal('rename-modal', show);
         window.toggleAdminLoginModal = (show) => toggleModal('admin-login-modal', show);
-        window.toggleErrorModal = (show) => toggleModal('error-modal', show);
         
         /**
          * Executes the confirmation callback if confirmed and hides the modal.
@@ -381,7 +430,7 @@
         }
 
 
-        // --- Admin Actions (Firebase Interactions) ---
+        // --- Admin Actions (Updated for Firestore) ---
 
         /**
          * Handles the Admin Login process.
@@ -399,7 +448,6 @@
                 toggleModal('admin-login-modal', false);
                 updateAdminButtons();
             } else {
-                isAdmin = false;
                 messageElement.textContent = "Mot de passe incorrect.";
                 messageElement.className = "text-red-600 text-sm";
             }
@@ -409,46 +457,43 @@
          * Adds a new player to Firestore.
          */
         window.addPlayer = async function() {
-            if (!db || !isAuthReady) return showErrorMessage("Erreur", "Base de données non initialisée.");
-
+            if (!isAdmin || !firebaseReady) return;
+            
             const playerNameInput = document.getElementById('new-player-name');
             const playerName = playerNameInput.value.trim();
             const messageElement = document.getElementById('player-management-message');
 
             if (!playerName) {
-                messageElement.textContent = "Veuillez entrer un nom de joueur.";
-                messageElement.className = "text-red-600 text-sm";
+                showUIMessage('player-management-message', "Veuillez entrer un nom de joueur.", false);
                 return;
             }
 
             if (Object.values(players).some(p => p.name.toLowerCase() === playerName.toLowerCase())) {
-                messageElement.textContent = "Ce joueur existe déjà.";
-                messageElement.className = "text-red-600 text-sm";
+                showUIMessage('player-management-message', "Ce joueur existe déjà.", false);
                 return;
             }
 
             try {
-                const newId = crypto.randomUUID(); // Generate unique ID
+                // Firestore attribue l'ID automatiquement, mais nous le définissons pour la clarté
+                const { setDoc, doc, collection } = window.firebase;
+                const newPlayerRef = doc(collection(db, getCollectionPath())); 
                 const newPlayer = {
-                    id: newId,
                     name: playerName,
                     elo: INITIAL_ELO,
                     wins: 0,
                     losses: 0,
                     matches: 0,
-                    createdAt: new Date().getTime()
+                    createdAt: new Date().getTime(),
+                    createdBy: userId // Optionnel: marquer qui a créé le joueur
                 };
                 
-                const playerRef = doc(db, getCollectionPath(__app_id), newId);
-                await setDoc(playerRef, newPlayer);
+                await setDoc(newPlayerRef, newPlayer);
 
                 playerNameInput.value = '';
-                messageElement.textContent = `Joueur '${playerName}' ajouté avec succès! (Synchronisé)`;
-                messageElement.className = "text-green-600 text-sm";
+                showUIMessage('player-management-message', `Joueur '${playerName}' ajouté avec succès!`);
             } catch (error) {
-                console.error("Erreur Firestore lors de l'ajout du joueur:", error);
-                messageElement.textContent = "Erreur: Échec de l'ajout du joueur à la base de données.";
-                messageElement.className = "text-red-600 text-sm";
+                console.error("Erreur lors de l'ajout du joueur:", error);
+                showUIMessage('player-management-message', "Erreur: Échec de l'ajout du joueur (vérifiez les règles Firestore).", false);
             }
         }
 
@@ -457,7 +502,7 @@
          */
         window.confirmRemovePlayer = (playerId, playerName) => {
             showConfirmationModal(
-                `Êtes-vous sûr de vouloir supprimer le joueur '${playerName}'? Cette action est irréversible et synchronisée.`,
+                `Êtes-vous sûr de vouloir supprimer le joueur '${playerName}'? Cette action est irréversible.`,
                 () => removePlayer(playerId)
             );
         };
@@ -467,26 +512,16 @@
          * Removes a player from Firestore.
          */
         async function removePlayer(playerId) {
-            if (!db || !isAuthReady) return showErrorMessage("Erreur", "Base de données non initialisée.");
-
-            const messageElement = document.getElementById('player-management-message');
+            if (!isAdmin || !firebaseReady) return;
             
-            if (!players[playerId]) {
-                messageElement.textContent = "Erreur: Joueur introuvable.";
-                messageElement.className = "text-red-600 text-sm";
-                return;
-            }
-
             try {
-                const playerRef = doc(db, getCollectionPath(__app_id), playerId);
-                await deleteDoc(playerRef);
+                const { deleteDoc, doc } = window.firebase;
+                await deleteDoc(doc(db, getCollectionPath(), playerId));
                 
-                messageElement.textContent = "Joueur supprimé avec succès! (Synchronisé)";
-                messageElement.className = "text-green-600 text-sm";
+                showUIMessage('player-management-message', "Joueur supprimé avec succès!");
             } catch (error) {
-                 console.error("Erreur Firestore lors de la suppression du joueur:", error);
-                 messageElement.textContent = "Erreur: Échec de la suppression du joueur de la base de données.";
-                 messageElement.className = "text-red-600 text-sm";
+                 console.error("Erreur lors de la suppression du joueur:", error);
+                 showUIMessage('player-management-message', "Erreur: Échec de la suppression du joueur.", false);
             }
         }
 
@@ -494,103 +529,113 @@
          * Renames a player in Firestore.
          */
         window.renamePlayer = async function() {
-            if (!db || !isAuthReady) return showErrorMessage("Erreur", "Base de données non initialisée.");
-
+            if (!isAdmin || !firebaseReady) return;
+            
             const playerId = document.getElementById('rename-player-id').value;
             const newName = document.getElementById('rename-player-name').value.trim();
             const messageElement = document.getElementById('rename-modal-message');
 
             if (!newName) {
-                messageElement.textContent = "Veuillez entrer un nouveau nom.";
-                messageElement.className = "text-red-600 text-sm";
+                showUIMessage('rename-modal-message', "Veuillez entrer un nouveau nom.", false);
                 return;
             }
 
             if (Object.values(players).some(p => p.name.toLowerCase() === newName.toLowerCase() && p.id !== playerId)) {
-                 messageElement.textContent = "Un autre joueur porte déjà ce nom.";
-                 messageElement.className = "text-red-600 text-sm";
+                 showUIMessage('rename-modal-message', "Un autre joueur porte déjà ce nom.", false);
                  return;
              }
 
             if (!players[playerId]) {
-                 messageElement.textContent = "Erreur: Joueur introuvable pour le renommage.";
-                 messageElement.className = "text-red-600 text-sm";
+                 showUIMessage('rename-modal-message', "Erreur: Joueur introuvable pour le renommage.", false);
                  return;
             }
             
             try {
-                const playerRef = doc(db, getCollectionPath(__app_id), playerId);
-                await updateDoc(playerRef, { name: newName });
+                const { setDoc, doc } = window.firebase;
+                const playerRef = doc(db, getCollectionPath(), playerId);
 
-                messageElement.textContent = `Joueur renommé en '${newName}' avec succès! (Synchronisé)`;
-                messageElement.className = "text-green-600 text-sm";
-                setTimeout(() => toggleModal('rename-modal', false), 1500); // Close after success
+                // Utiliser setDoc avec merge:true pour mettre à jour uniquement le nom
+                await setDoc(playerRef, { name: newName }, { merge: true });
+
+                showUIMessage('rename-modal-message', `Joueur renommé en '${newName}' avec succès!`);
+                setTimeout(() => toggleModal('rename-modal', false), 1500); // Ferme après succès
             } catch (error) {
-                console.error("Erreur Firestore lors du renommage du joueur:", error);
-                messageElement.textContent = "Erreur: Échec du renommage du joueur dans la base de données.";
-                messageElement.className = "text-red-600 text-sm";
+                console.error("Erreur lors du renommage du joueur:", error);
+                showUIMessage('rename-modal-message', "Erreur: Échec du renommage du joueur.", false);
             }
         }
 
         /**
-         * Handles the recording of a match result and updates player Elo in Firestore.
+         * Handles the recording of a match result and updates player Elo using a transaction.
+         * A transaction ensures atomic updates for both players simultaneously.
          */
         window.recordMatch = async function() {
-            if (!db || !isAuthReady) return showErrorMessage("Erreur", "Base de données non initialisée.");
+            if (!isAdmin || !firebaseReady) return;
             
             const winnerId = document.getElementById('winner-select').value;
             const loserId = document.getElementById('loser-select').value;
-            const messageElement = document.getElementById('match-message');
 
             if (winnerId === loserId) {
-                messageElement.textContent = "Le gagnant et le perdant doivent être différents.";
-                messageElement.className = "text-red-600 text-sm";
+                showUIMessage('match-message', "Le gagnant et le perdant doivent être différents.", false);
                 return;
             }
             
+            // Les données brutes peuvent être légèrement décalées par rapport à la DB,
+            // mais la transaction lira la version la plus récente de la DB.
             const winnerData = players[winnerId];
             const loserData = players[loserId];
 
             if (!winnerData || !loserData) {
-                messageElement.textContent = "Erreur: Joueur introuvable.";
-                messageElement.className = "text-red-600 text-sm";
+                showUIMessage('match-message', "Erreur: Joueur introuvable.", false);
                 return;
             }
 
             try {
-                // Calculate new Elos
-                const { newRa, newRb } = calculateNewElos(winnerData.elo, loserData.elo);
+                const { runTransaction, doc, getDoc } = window.firebase;
+                let eloChangeWinner, eloChangeLoser;
 
-                // Calculate Elo change
-                const eloChangeWinner = newRa - winnerData.elo;
-                const eloChangeLoser = newRb - loserData.elo;
-                
-                const collectionPath = getCollectionPath(__app_id);
-                
-                // Transaction-like update (simultaneous writes for atomic feel)
-                const winnerUpdate = updateDoc(doc(db, collectionPath, winnerId), {
-                    elo: newRa,
-                    wins: winnerData.wins + 1,
-                    matches: winnerData.matches + 1
+                await runTransaction(db, async (transaction) => {
+                    // 1. Lire les documents les plus récents dans la transaction
+                    const winnerRef = doc(db, getCollectionPath(), winnerId);
+                    const loserRef = doc(db, getCollectionPath(), loserId);
+                    
+                    const winnerSnapshot = await transaction.get(winnerRef);
+                    const loserSnapshot = await transaction.get(loserRef);
+
+                    if (!winnerSnapshot.exists() || !loserSnapshot.exists()) {
+                        throw "Les documents du joueur n'existent pas ou ont été supprimés.";
+                    }
+
+                    const currentWinnerElo = winnerSnapshot.data().elo;
+                    const currentLoserElo = loserSnapshot.data().elo;
+                    
+                    // 2. Calculer les nouveaux Elos
+                    const { newRa, newRb } = calculateNewElos(currentWinnerElo, currentLoserElo);
+
+                    eloChangeWinner = newRa - currentWinnerElo;
+                    eloChangeLoser = newRb - currentLoserElo;
+
+                    // 3. Mettre à jour les données du gagnant
+                    transaction.set(winnerRef, { 
+                        elo: newRa, 
+                        wins: winnerSnapshot.data().wins + 1, 
+                        matches: winnerSnapshot.data().matches + 1 
+                    }, { merge: true });
+                    
+                    // 4. Mettre à jour les données du perdant
+                    transaction.set(loserRef, { 
+                        elo: newRb, 
+                        losses: loserSnapshot.data().losses + 1, 
+                        matches: loserSnapshot.data().matches + 1 
+                    }, { merge: true });
                 });
-
-                const loserUpdate = updateDoc(doc(db, collectionPath, loserId), {
-                    elo: newRb,
-                    losses: loserData.losses + 1,
-                    matches: loserData.matches + 1
-                });
                 
-                await Promise.all([winnerUpdate, loserUpdate]);
-
-                messageElement.textContent = `Match enregistré! ${winnerData.name} gagne (+${eloChangeWinner}) contre ${loserData.name} (${eloChangeLoser}).`;
-                messageElement.className = "text-green-600 font-medium";
-                setTimeout(() => messageElement.textContent = '', 5000); // Clear message after 5 seconds
+                // Si la transaction réussit, afficher le message
+                showUIMessage('match-message', `Match enregistré! ${winnerData.name} gagne (+${eloChangeWinner}) contre ${loserData.name} (${eloChangeLoser}).`);
 
             } catch (e) {
-                console.error("Erreur Firestore lors de l'enregistrement du match: ", e);
-                showErrorMessage("Erreur de Sauvegarde", "Échec de l'enregistrement du match dans la base de données.");
-                messageElement.textContent = `Erreur lors de l'enregistrement du match.`;
-                messageElement.className = "text-red-600 text-sm";
+                console.error("Erreur lors de l'enregistrement du match (Transaction échouée): ", e);
+                showUIMessage('match-message', `Erreur lors de l'enregistrement du match : Vérifiez la console.`, false);
             }
         }
 
@@ -599,8 +644,9 @@
          * Initializes the application: loads data and renders UI.
          */
         function initializeApplication() {
-            // Start Firebase setup and listening process
-            initializeFirebase(); 
+            // Démarre l'initialisation de Firebase (qui s'occupe de la sync de données)
+            initializeFirebase();
+            updateAdminButtons(); // Pour montrer les boutons d'admin dès le départ
         }
 
         // Initialize the app when the window loads
@@ -613,19 +659,13 @@
     <!-- Header & Admin Controls -->
     <header class="bg-white shadow-md p-4 sticky top-0 z-10">
         <div class="max-w-7xl mx-auto flex justify-between items-center">
-            <h1 class="text-2xl font-bold text-primary">Classement Elo (Partagé)</h1>
+            <h1 class="text-2xl font-bold text-primary">Classement Elo Firebase</h1>
 
             <!-- Admin Panel and Login -->
             <div class="flex items-center space-x-4">
-                
-                <!-- Firebase Status & User ID -->
-                <div class="flex flex-col items-end space-y-1">
-                    <span id="firebase-status" class="bg-yellow-500 text-white text-xs font-medium px-2.5 py-0.5 rounded-full shadow-md transition duration-300">
-                        ⏳ Connexion...
-                    </span>
-                    <span id="user-id-display" class="text-gray-500 text-xs font-mono">
-                        ID Utilisateur: En attente...
-                    </span>
+                <!-- DB Status -->
+                <div id="db-status" class="hidden text-xs font-medium px-2.5 py-0.5 rounded-full">
+                    <!-- Status affiché par JS -->
                 </div>
                 
                 <!-- Admin Pencil Icon (Player Management) -->
@@ -644,18 +684,21 @@
                 </div>
             </div>
         </div>
+        <div id="user-id-display" class="mt-1 text-center text-xs text-gray-500">
+            <!-- ID Utilisateur affiché ici -->
+        </div>
     </header>
 
     <!-- Main Content -->
     <main class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
         
-        <!-- Loading Spinner (will hide after initial load) -->
-        <div id="loading-spinner" class="flex justify-center items-center py-20">
+        <!-- Loading Spinner (will hide after initial sync) -->
+        <div id="loading-spinner" class="flex flex-col justify-center items-center py-20">
             <svg class="animate-spin-slow h-10 w-10 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>
-            <span class="ml-3 text-lg text-gray-600">Connexion à Firebase et chargement des données...</span>
+            <span id="loading-message" class="ml-3 mt-3 text-lg text-gray-600">Initialisation de l'application...</span>
         </div>
 
         <!-- Ranking Table Container -->
@@ -680,7 +723,7 @@
             <div class="mt-2">
                 <input type="password" id="admin-password" placeholder="Mot de passe" 
                        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
-                <p id="admin-login-message" class="mt-2 text-sm text-center"></p>
+                <p id="admin-login-message" class="mt-2 text-sm text-center ui-message"></p>
             </div>
             <div class="mt-5 sm:mt-6 sm:grid sm:grid-flow-row-dense sm:grid-cols-2 sm:gap-3">
                 <button onclick="handleAdminLogin()" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary text-base font-medium text-white hover:bg-primary/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary sm:col-start-2 sm:text-sm transition duration-150">
@@ -720,7 +763,7 @@
                     </ul>
                 </div>
             </div>
-             <p id="player-management-message" class="mt-4 text-center text-sm font-medium"></p>
+             <p id="player-management-message" class="mt-4 text-center text-sm font-medium ui-message"></p>
         </div>
     </div>
     
@@ -733,7 +776,7 @@
                 <label for="rename-player-name" class="block text-sm font-medium text-gray-700">Nouveau Nom:</label>
                 <input type="text" id="rename-player-name" 
                        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
-                <p id="rename-modal-message" class="mt-2 text-sm text-center"></p>
+                <p id="rename-modal-message" class="mt-2 text-sm text-center ui-message"></p>
             </div>
             <div class="mt-5 sm:mt-6 sm:grid sm:grid-flow-row-dense sm:grid-cols-2 sm:gap-3">
                 <button onclick="renamePlayer()" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary text-base font-medium text-white hover:bg-primary/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary sm:col-start-2 sm:text-sm transition duration-150">
@@ -762,19 +805,5 @@
         </div>
     </div>
     
-    <!-- Generic Error/Info Modal (Replaces alerts) -->
-    <div id="error-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full hidden z-50">
-        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-            <h3 id="error-modal-title" class="text-lg font-medium leading-6 text-red-600 mb-4">Erreur</h3>
-            <p id="error-modal-message" class="mt-2 text-sm text-gray-700"></p>
-            <div class="mt-5 sm:mt-6">
-                <button onclick="toggleErrorModal(false)" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary text-base font-medium text-white hover:bg-primary/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary sm:text-sm transition duration-150">
-                    Fermer
-                </button>
-            </div>
-        </div>
-    </div>
-    
 </body>
-
 </html>
