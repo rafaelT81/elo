@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Système de Classement Elo (Firebase)</title>
+    <title>JD Elo</title>
     <!-- Chargement de Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
@@ -33,6 +33,10 @@
                         'primary': '#4f46e5', // Indigo 600
                         'secondary': '#10b981', // Emerald 500
                         'background': '#f9fafb', // Gray 50
+                        // Ajout des couleurs de podium
+                        'gold': '#F5E727',
+                        'silver': '#C0C0C0',
+                        'bronze': '#CD7F32',
                     }
                 }
             }
@@ -59,11 +63,24 @@
         .ui-message.fade-out {
             opacity: 0;
         }
+        /* Classe pour le texte blanc sur le bronze */
+        .text-on-bronze {
+            color: #f9fafb; /* White or near-white */
+        }
+        /* Classe pour le texte foncé sur l'or et l'argent */
+        .text-on-light {
+            color: #1f2937; /* Dark gray */
+        }
+        /* Rendre la colonne Rank plus large pour la streak */
+        #ranking-list th:first-child, #ranking-list td:first-child {
+            /* width: 150px; -- Commenté pour laisser Tailwind gérer la largeur fluide */
+            min-width: 120px;
+        }
     </style>
     
     <script type="text/javascript">
         // Global Variables
-        let players = {}; // Map to store players: { id: { id, name, elo, ... } }
+        let players = {}; // Map to store players: { id: { id, name, elo, top1Since, ... } }
         let isAdmin = false;
         let confirmationCallback = null; // Global variable for confirmation callback
         let firebaseReady = false; // Indicates if Auth and Firestore are initialized
@@ -74,21 +91,34 @@
         let userId = 'unknown';
 
         // Constants
-        const INITIAL_ELO = 1500;
-        const K_FACTOR = 32;
+        const INITIAL_ELO = 300; // Elo initial pour les nouveaux joueurs
+        const K_FACTOR = 96; // Facteur K pour un classement 3x plus rapide
         const ADMIN_PASSWORD = "0000"; // Mot de passe admin local (ne sera pas dans Firestore)
+
+        // Codes de couleur des médailles
+        const MEDAL_COLORS = {
+            1: '#F5E727', // Or
+            2: '#C0C0C0', // Argent
+            3: '#CD7F32', // Bronze
+        };
+        const MEDAL_TEXT_COLOR = {
+            1: 'text-on-light', // Dark text on Gold
+            2: 'text-on-light', // Dark text on Silver
+            3: 'text-on-bronze', // White text on Bronze
+        };
+
 
         // --- Configuration Firebase (Intégrée avec vos clés !) ---
 
         /**
          * Returns the collection path for the Elo players.
-         * Using a top-level collection name 'elo_players' for simplicity outside Canvas.
          */
         function getCollectionPath() {
-            return `elo_players`; // Collection à créer dans Firestore
+            // Revenir au chemin simple car l'environnement Canvas est stable
+            return `elo_players`; 
         }
         
-        // Configuration Firebase fournie par l'utilisateur
+        // Configuration Firebase (PLACEHOLDER: REMPLACEZ PAR VOTRE VRAIE CONFIG)
         const firebaseConfig = {
             apiKey: "AIzaSyDWBh3YC57FSEzzd66JhDNwgLn0S9POVtc",
             authDomain: "classement-elo.firebaseapp.com",
@@ -98,7 +128,6 @@
             appId: "1:240751765604:web:bfc2d16d768cede61b9771",
             measurementId: "G-FREKR0HF4H"
         };
-        const appId = firebaseConfig.projectId; // Utiliser l'ID du projet comme ID d'application
         const initialAuthToken = null; // Pas de jeton injecté dans un déploiement GitHub
 
         // --- Firebase Initialization and Data Sync ---
@@ -107,7 +136,7 @@
          * Initializes Firebase, performs authentication, and sets up the data listener.
          */
         async function initializeFirebase() {
-            const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, getFirestore, onAuthStateChanged, collection, query, onSnapshot, setLogLevel } = window.firebase;
+            const { initializeApp, getAuth, signInAnonymously, signInWithCustomToken, getFirestore, onAuthStateChanged, setLogLevel } = window.firebase;
 
             if (!firebaseConfig || !firebaseConfig.apiKey) {
                 document.getElementById('loading-message').textContent = "Erreur: Configurez vos clés Firebase dans le code !";
@@ -141,7 +170,6 @@
                     if (user) {
                         userId = user.uid;
                         console.log("Utilisateur authentifié. UID:", userId);
-                        document.getElementById('user-id-display').textContent = `ID Utilisateur: ${userId}`;
                         
                         // 2. Synchronisation des données (après l'authentification)
                         if (!firebaseReady) {
@@ -173,22 +201,89 @@
             onSnapshot(q, (snapshot) => {
                 const updatedPlayers = {};
                 snapshot.forEach((doc) => {
-                    // Firestore stocke l'ID dans doc.id, non dans le document lui-même
-                    updatedPlayers[doc.id] = { id: doc.id, ...doc.data() };
+                    // Firestore stocke l'ID dans doc.id, non dans le document lui-même. 
+                    // Ajout d'une valeur par défaut pour top1Since pour éviter les erreurs.
+                    updatedPlayers[doc.id] = { id: doc.id, top1Since: null, ...doc.data() };
                 });
                 players = updatedPlayers;
+                
+                const sortedPlayers = getSortedRanking(players);
                 console.log("Données de classement synchronisées en temps réel.");
+                
+                // Gérer la streak Top 1 après chaque mise à jour des données
+                // NOTE: Cette fonction effectue des écritures, donc elle doit être appelée APRES l'update de 'players'
+                manageTop1Streak(sortedPlayers); 
+                
                 renderAll();
             }, (error) => {
                 console.error("Erreur d'écoute Firestore:", error);
-                // Afficher un message d'erreur à l'utilisateur si possible
                 document.getElementById('match-message').textContent = "Erreur de synchronisation des données.";
                 document.getElementById('match-message').className = "text-red-600 font-medium ui-message";
             });
         }
+        
+        /**
+         * Manages the top1Since field for players to track the streak duration.
+         * This runs after every data snapshot update. It is non-atomic relative to match updates.
+         */
+        async function manageTop1Streak(sortedPlayers) {
+            if (!firebaseReady || sortedPlayers.length === 0 || !db) return;
+            
+            const { setDoc, doc } = window.firebase;
+            
+            // 1. Déterminer le nouveau joueur Rank 1
+            const newTopPlayer = sortedPlayers[0];
+            const newTopId = newTopPlayer.id;
+
+            // 2. Identifier le joueur qui *actuellement* a le top1Since (l'ancien Top 1)
+            let oldTopIdWithStamp = null;
+            for (const id in players) {
+                // Nous lisons directement la variable globale 'players' qui contient la dernière version de la DB
+                if (players[id].top1Since) {
+                    oldTopIdWithStamp = id;
+                    break;
+                }
+            }
+            
+            // 3. Mettre à jour si le Top 1 a changé
+            if (newTopId !== oldTopIdWithStamp) {
+                
+                console.log(`Changement de Rank 1 détecté: ${oldTopIdWithStamp || 'N/A'} -> ${newTopId}`);
+                
+                // A) Réinitialiser l'ancien Top 1 (s'il existe)
+                if (oldTopIdWithStamp && players[oldTopIdWithStamp].top1Since) {
+                     const oldRef = doc(db, getCollectionPath(), oldTopIdWithStamp);
+                     try {
+                        await setDoc(oldRef, { top1Since: null }, { merge: true });
+                     } catch (e) {
+                        console.error("Échec de la réinitialisation de l'ancien top1Since:", e);
+                     }
+                }
+
+                // B) Définir le timestamp pour le nouveau Top 1
+                const newRef = doc(db, getCollectionPath(), newTopId);
+                try {
+                    // Toujours définir un nouveau timestamp (maintenant) pour le nouveau Top 1
+                    // car il vient juste d'atteindre la place (ou le perdant vient de perdre).
+                    await setDoc(newRef, { top1Since: new Date().getTime() }, { merge: true });
+                } catch (e) {
+                    console.error("Échec de la définition du nouveau top1Since:", e);
+                }
+
+            } else if (!newTopPlayer.top1Since) {
+                 // Cas spécial: Le Top 1 est le même, mais le timestamp n'était pas défini (ex: première initialisation)
+                 const newRef = doc(db, getCollectionPath(), newTopId);
+                 try {
+                     await setDoc(newRef, { top1Since: new Date().getTime() }, { merge: true });
+                 } catch (e) {
+                    console.error("Échec de la définition initiale de top1Since:", e);
+                 }
+            }
+            // Si newTopId est le même que oldTopIdWithStamp ET top1Since est déjà défini, rien à faire.
+        }
 
 
-        // --- Elo Calculation & Utilities (No Change) ---
+        // --- Elo Calculation & Utilities ---
 
         /**
          * Calculates the expected score of Player A against Player B.
@@ -212,10 +307,17 @@
         }
 
         /**
-         * Converts player map to a sorted array for ranking.
+         * Converts player map to a sorted array for ranking, adding win percentage.
          */
         function getSortedRanking(playerMap) {
             return Object.values(playerMap)
+                .map(p => ({
+                    ...p,
+                    // S'assurer que top1Since est bien un nombre ou null
+                    top1Since: p.top1Since && typeof p.top1Since === 'number' ? p.top1Since : null, 
+                    // Calcul du pourcentage de victoires
+                    winRate: p.matches > 0 ? ((p.wins / p.matches) * 100).toFixed(1) : '0.0',
+                }))
                 .sort((a, b) => b.elo - a.elo || a.name.localeCompare(b.name))
                 .map((p, index) => ({
                     ...p,
@@ -224,7 +326,7 @@
         }
 
 
-        // --- UI Rendering (Mostly Unchanged) ---
+        // --- UI Rendering (Updated to color the top 3 rows and show streak) ---
 
         /**
          * Renders the main ranking table.
@@ -241,30 +343,54 @@
             }
 
             rankingList.innerHTML = `
-                <table class="min-w-full divide-y divide-gray-200 shadow-xl rounded-lg overflow-hidden">
-                    <thead class="bg-primary/90 text-white">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider">#</th>
-                            <th class="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider">Nom du Joueur</th>
-                            <th class="px-6 py-3 text-right text-xs font-bold uppercase tracking-wider">Elo</th>
-                            <th class="px-6 py-3 text-right text-xs font-bold uppercase tracking-wider hidden sm:table-cell">Victoires</th>
-                            <th class="px-6 py-3 text-right text-xs font-bold uppercase tracking-wider hidden sm:table-cell">Défaites</th>
-                        </tr>
-                    </thead>
-                    <tbody class="bg-white divide-y divide-gray-100">
-                        ${sortedPlayers.map(p => `
-                            <tr class="hover:bg-indigo-50 transition duration-150 ease-in-out">
-                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium ${p.rank <= 3 ? 'text-primary' : 'text-gray-900'}">
-                                    ${p.rank === 1 ? '🥇' : p.rank === 2 ? '🥈' : p.rank === 3 ? '🥉' : p.rank}
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${p.name}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-bold text-gray-900">${p.elo}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500 hidden sm:table-cell">${p.wins}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500 hidden sm:table-cell">${p.losses}</td>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200 shadow-xl rounded-lg overflow-hidden">
+                        <thead class="bg-primary/90 text-white">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider"># Rank / Streak</th>
+                                <th class="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider">Nom du Joueur</th>
+                                <th class="px-6 py-3 text-right text-xs font-bold uppercase tracking-wider">Elo</th>
+                                <!-- Colonnes numériques alignées à droite pour une meilleure lisibilité -->
+                                <th class="px-6 py-3 text-right text-xs font-bold uppercase tracking-wider hidden sm:table-cell">Win %</th>
+                                <th class="px-6 py-3 text-right text-xs font-bold uppercase tracking-wider hidden sm:table-cell">Parties Jouées</th>
                             </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            ${sortedPlayers.map(p => {
+                                let rowColor = MEDAL_COLORS[p.rank] || '';
+                                let textColorClass = MEDAL_TEXT_COLOR[p.rank] || 'text-gray-900';
+                                
+                                // Determine the row class and style
+                                const rowClass = rowColor ? `shadow-inner transform hover:scale-[1.01] transition duration-150 ease-in-out` : `bg-white hover:bg-indigo-50 transition duration-150 ease-in-out`;
+                                const rowStyle = rowColor ? `style="background-color: ${rowColor};"` : '';
+                                
+                                // Calculate days in top 1 if applicable
+                                let top1DaysDisplay = '';
+                                if (p.rank === 1 && p.top1Since) {
+                                    const msPerDay = 1000 * 60 * 60 * 24;
+                                    const days = Math.floor((new Date().getTime() - p.top1Since) / msPerDay);
+                                    // Afficher "Depuis X jours" (Since X days) seulement pour Rank 1
+                                    top1DaysDisplay = `<span class="text-xs font-normal ml-2 opacity-80 whitespace-nowrap"> (Depuis ${days} jours)</span>`;
+                                }
+
+                                return `
+                                    <tr class="${rowClass}" ${rowStyle}>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium ${textColorClass}">
+                                            <span class="font-bold">${p.rank === 1 ? '🥇' : p.rank === 2 ? '🥈' : p.rank === 3 ? '🥉' : p.rank}</span>
+                                            ${top1DaysDisplay}
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm ${textColorClass}">${p.name}</td>
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-bold ${textColorClass}">${p.elo}</td>
+                                        <!-- Alignement à droite (text-right) pour toutes les données numériques -->
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-medium ${p.winRate >= 50 ? 'text-secondary' : 'text-yellow-800'} hidden sm:table-cell">${p.winRate}%</td>
+                                        <!-- Alignement à droite (text-right) pour toutes les données numériques -->
+                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-right ${textColorClass} hidden sm:table-cell">${p.matches}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
             `;
         }
 
@@ -273,7 +399,8 @@
          */
         function updateAdminButtons() {
             const adminLogin = document.getElementById('admin-login-container');
-            const matchRecorder = document.getElementById('match-recorder-container');
+            // MODIFICATION: Sélectionner le conteneur du Match Recorder
+            const matchRecorderContainer = document.getElementById('match-recorder-container'); 
             const adminPencil = document.getElementById('admin-pencil');
             const dbStatus = document.getElementById('db-status');
 
@@ -281,13 +408,15 @@
 
             if (isAdmin) {
                 adminLogin.classList.add('hidden');
-                matchRecorder.classList.remove('hidden');
+                // MODIFICATION: Afficher le Match Recorder
+                matchRecorderContainer.classList.remove('hidden'); 
                 adminPencil.classList.remove('hidden');
                 dbStatus.className = "bg-primary text-white text-xs font-medium px-2.5 py-0.5 rounded-full";
                 dbStatus.textContent = "☁️ Mode Admin (Connecté)";
             } else {
                 adminLogin.classList.remove('hidden');
-                matchRecorder.classList.add('hidden');
+                // MODIFICATION: Masquer le Match Recorder
+                matchRecorderContainer.classList.add('hidden'); 
                 adminPencil.classList.add('hidden');
                 dbStatus.className = "bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded-full";
                 dbStatus.textContent = "☁️ Lecture Seule";
@@ -308,23 +437,35 @@
                 return;
             }
 
-            const optionsHtml = sortedPlayers.map(p => `<option value="${p.id}">${p.name} (${p.elo})</option>`).join('');
+            // Générer les options, mais avec une option par défaut vide/désactivée
+            const defaultOption = '<option value="" disabled selected>-- Sélectionner --</option>';
+            const playerOptions = sortedPlayers.map(p => `<option value="${p.id}">${p.name} (${p.elo})</option>`).join('');
+            const optionsHtml = defaultOption + playerOptions;
 
             matchRecorder.innerHTML = `
                 <h3 class="text-xl font-semibold mb-4 text-primary">Enregistrer un Match</h3>
                 <div class="space-y-4">
-                    <div>
-                        <label for="winner-select" class="block text-sm font-medium text-gray-700">Gagnant :</label>
-                        <select id="winner-select" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md shadow-sm">
-                            ${optionsHtml}
-                        </select>
+                    
+                    <!-- Conteneur Flex pour les deux menus déroulants -->
+                    <div class="flex flex-col md:flex-row md:space-x-4 space-y-4 md:space-y-0">
+                        
+                        <!-- Section Gagnant -->
+                        <div class="md:w-1/2">
+                            <label for="winner-select" class="block text-sm font-medium text-gray-700">Gagnant :</label>
+                            <select id="winner-select" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md shadow-sm">
+                                ${optionsHtml}
+                            </select>
+                        </div>
+                        
+                        <!-- Section Perdant -->
+                        <div class="md:w-1/2">
+                            <label for="loser-select" class="block text-sm font-medium text-gray-700">Perdant :</label>
+                            <select id="loser-select" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md shadow-sm">
+                                ${optionsHtml}
+                            </select>
+                        </div>
                     </div>
-                    <div>
-                        <label for="loser-select" class="block text-sm font-medium text-gray-700">Perdant :</label>
-                        <select id="loser-select" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md shadow-sm">
-                            ${optionsHtml}
-                        </select>
-                    </div>
+                    
                     <button id="record-match-btn" onclick="recordMatch()" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-secondary hover:bg-emerald-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-secondary transition duration-150">
                         Enregistrer le Résultat
                     </button>
@@ -345,9 +486,9 @@
                 <li class="flex items-center justify-between py-2 border-b border-gray-100">
                     <span class="text-gray-700">${p.name} (Elo: ${p.elo})</span>
                     <div class="space-x-2">
-                        <button onclick="document.getElementById('rename-player-id').value='${p.id}'; document.getElementById('rename-player-name').value='${p.name}'; toggleRenameModal(true);"
-                                class="text-blue-500 hover:text-blue-700 p-1 rounded-full hover:bg-blue-100 transition duration-150" title="Renommer">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                        <button onclick="document.getElementById('rename-player-id').value='${p.id}'; document.getElementById('rename-player-name').value='${p.name}'; document.getElementById('new-elo-score').value='${p.elo}'; toggleRenameModal(true);"
+                                class="text-blue-500 hover:text-blue-700 p-1 rounded-full hover:bg-blue-100 transition duration-150" title="Renommer / Modifier Elo">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
                         </button>
                         <button onclick="confirmRemovePlayer('${p.id}', '${p.name}')"
                                 class="text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-100 transition duration-150" title="Supprimer">
@@ -388,7 +529,7 @@
             }, 5000);
         }
 
-        // --- Modal Handling (Unchanged) ---
+        // --- Modal Handling ---
 
         /**
          * Toggles the visibility of any modal.
@@ -430,7 +571,7 @@
         }
 
 
-        // --- Admin Actions (Updated for Firestore) ---
+        // --- Admin Actions ---
 
         /**
          * Handles the Admin Login process.
@@ -484,7 +625,8 @@
                     losses: 0,
                     matches: 0,
                     createdAt: new Date().getTime(),
-                    createdBy: userId // Optionnel: marquer qui a créé le joueur
+                    top1Since: null, // Nouveau champ initialisé à null
+                    createdBy: userId 
                 };
                 
                 await setDoc(newPlayerRef, newPlayer);
@@ -526,48 +668,79 @@
         }
 
         /**
-         * Renames a player in Firestore.
+         * Renames a player and/or changes their Elo in Firestore.
          */
-        window.renamePlayer = async function() {
+        window.updatePlayerDetails = async function() {
             if (!isAdmin || !firebaseReady) return;
             
             const playerId = document.getElementById('rename-player-id').value;
             const newName = document.getElementById('rename-player-name').value.trim();
+            const newEloValue = document.getElementById('new-elo-score').value.trim();
             const messageElement = document.getElementById('rename-modal-message');
 
-            if (!newName) {
-                showUIMessage('rename-modal-message', "Veuillez entrer un nouveau nom.", false);
-                return;
-            }
-
-            if (Object.values(players).some(p => p.name.toLowerCase() === newName.toLowerCase() && p.id !== playerId)) {
-                 showUIMessage('rename-modal-message', "Un autre joueur porte déjà ce nom.", false);
-                 return;
-             }
-
-            if (!players[playerId]) {
-                 showUIMessage('rename-modal-message', "Erreur: Joueur introuvable pour le renommage.", false);
+            const currentPlayer = players[playerId];
+            if (!currentPlayer) {
+                 showUIMessage('rename-modal-message', "Erreur: Joueur introuvable pour la modification.", false);
                  return;
             }
             
+            let updateData = {};
+            let logMessage = [];
+            
+            // 1. Validation du Nom
+            if (!newName) {
+                showUIMessage('rename-modal-message', "Veuillez entrer un nom de joueur.", false);
+                return;
+            }
+
+            // Vérification de l'unicité du nom (sauf si c'est le même)
+            if (newName !== currentPlayer.name) {
+                if (Object.values(players).some(p => p.name.toLowerCase() === newName.toLowerCase() && p.id !== playerId)) {
+                     showUIMessage('rename-modal-message', "Un autre joueur porte déjà ce nom.", false);
+                     return;
+                 }
+                updateData.name = newName;
+                logMessage.push(`Nom: '${currentPlayer.name}' -> '${newName}'`);
+            }
+            
+            // 2. Validation et traitement de l'Elo
+            let newElo = parseInt(newEloValue, 10);
+            
+            // newEloValue devrait toujours être le current Elo si non modifié (car pré-rempli)
+            if (isNaN(newElo)) {
+                showUIMessage('rename-modal-message', "Le score Elo doit être un nombre valide.", false);
+                return;
+            }
+
+            if (newElo !== currentPlayer.elo) {
+                updateData.elo = newElo;
+                logMessage.push(`Elo: ${currentPlayer.elo} -> ${newElo}`);
+            }
+            
+            if (Object.keys(updateData).length === 0) {
+                showUIMessage('rename-modal-message', "Aucune modification détectée.", false);
+                setTimeout(() => toggleModal('rename-modal', false), 1500);
+                return;
+            }
+
+            // 3. Mise à jour Firestore
             try {
                 const { setDoc, doc } = window.firebase;
                 const playerRef = doc(db, getCollectionPath(), playerId);
 
-                // Utiliser setDoc avec merge:true pour mettre à jour uniquement le nom
-                await setDoc(playerRef, { name: newName }, { merge: true });
+                // Utiliser setDoc avec merge:true pour mettre à jour uniquement les champs dans updateData
+                await setDoc(playerRef, updateData, { merge: true });
 
-                showUIMessage('rename-modal-message', `Joueur renommé en '${newName}' avec succès!`);
+                showUIMessage('rename-modal-message', `Joueur mis à jour: ${logMessage.join(' et ')}!`);
                 setTimeout(() => toggleModal('rename-modal', false), 1500); // Ferme après succès
             } catch (error) {
-                console.error("Erreur lors du renommage du joueur:", error);
-                showUIMessage('rename-modal-message', "Erreur: Échec du renommage du joueur.", false);
+                console.error("Erreur lors de la modification du joueur:", error);
+                showUIMessage('rename-modal-message', "Erreur: Échec de la modification du joueur.", false);
             }
         }
 
         /**
          * Handles the recording of a match result and updates player Elo using a transaction.
-         * A transaction ensures atomic updates for both players simultaneously.
          */
         window.recordMatch = async function() {
             if (!isAdmin || !firebaseReady) return;
@@ -575,13 +748,16 @@
             const winnerId = document.getElementById('winner-select').value;
             const loserId = document.getElementById('loser-select').value;
 
+            if (!winnerId || !loserId) {
+                showUIMessage('match-message', "Veuillez sélectionner le gagnant et le perdant.", false);
+                return;
+            }
+
             if (winnerId === loserId) {
                 showUIMessage('match-message', "Le gagnant et le perdant doivent être différents.", false);
                 return;
             }
             
-            // Les données brutes peuvent être légèrement décalées par rapport à la DB,
-            // mais la transaction lira la version la plus récente de la DB.
             const winnerData = players[winnerId];
             const loserData = players[loserId];
 
@@ -591,7 +767,7 @@
             }
 
             try {
-                const { runTransaction, doc, getDoc } = window.firebase;
+                const { runTransaction, doc } = window.firebase;
                 let eloChangeWinner, eloChangeLoser;
 
                 await runTransaction(db, async (transaction) => {
@@ -659,7 +835,7 @@
     <!-- Header & Admin Controls -->
     <header class="bg-white shadow-md p-4 sticky top-0 z-10">
         <div class="max-w-7xl mx-auto flex justify-between items-center">
-            <h1 class="text-2xl font-bold text-primary">Classement Elo Firebase</h1>
+            <h1 class="text-2xl font-bold text-primary">JD Elo</h1>
 
             <!-- Admin Panel and Login -->
             <div class="flex items-center space-x-4">
@@ -684,9 +860,7 @@
                 </div>
             </div>
         </div>
-        <div id="user-id-display" class="mt-1 text-center text-xs text-gray-500">
-            <!-- ID Utilisateur affiché ici -->
-        </div>
+        <!-- L'affichage de l'ID utilisateur a été retiré pour l'ergonomie -->
     </header>
 
     <!-- Main Content -->
@@ -701,17 +875,18 @@
             <span id="loading-message" class="ml-3 mt-3 text-lg text-gray-600">Initialisation de l'application...</span>
         </div>
 
-        <!-- Ranking Table Container -->
-        <section id="ranking-list" class="mt-8">
-            <!-- Ranking table will be rendered here by JS -->
-        </section>
-
-        <!-- Match Recorder (Admin Only) -->
-        <section id="match-recorder-container" class="mt-12 hidden max-w-lg mx-auto bg-white p-6 rounded-xl shadow-2xl border border-gray-100">
+        <!-- Match Recorder (Admin Only) - DÉPLACÉ EN HAUT -->
+        <section id="match-recorder-container" class="mt-8 mb-8 hidden max-w-lg mx-auto bg-white p-6 rounded-xl shadow-2xl border border-gray-100">
             <div id="match-recorder">
                 <!-- Match recorder form will be rendered here by JS -->
             </div>
         </section>
+
+        <!-- Ranking Table Container - LAISSER ICI POUR LE CLASSEMENT PRINCIPAL -->
+        <section id="ranking-list" class="mt-8">
+            <!-- Ranking table will be rendered here by JS -->
+        </section>
+
     </main>
 
     <!-- --- Modals --- -->
@@ -723,6 +898,7 @@
             <div class="mt-2">
                 <input type="password" id="admin-password" placeholder="Mot de passe" 
                        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                
                 <p id="admin-login-message" class="mt-2 text-sm text-center ui-message"></p>
             </div>
             <div class="mt-5 sm:mt-6 sm:grid sm:grid-flow-row-dense sm:grid-cols-2 sm:gap-3">
@@ -736,9 +912,9 @@
         </div>
     </div>
 
-    <!-- Player Management Modal (Pencil Click) -->
+    <!-- Player Management Modal (Pencil Click) - Increased max-width to max-w-4xl -->
     <div id="player-management-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full hidden z-50">
-        <div class="relative top-10 mx-auto p-6 border w-11/12 max-w-2xl shadow-2xl rounded-lg bg-white">
+        <div class="relative top-10 mx-auto p-6 border w-11/12 max-w-4xl shadow-2xl rounded-lg bg-white">
             <h3 class="text-2xl font-extrabold text-primary border-b pb-2 mb-4">Gestion des Joueurs</h3>
             <button onclick="togglePlayerManagementModal(false)" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
                 <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
@@ -751,7 +927,7 @@
                     <input type="text" id="new-player-name" placeholder="Nom du joueur" 
                            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-secondary focus:border-secondary sm:text-sm">
                     <button onclick="addPlayer()" class="mt-3 w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-secondary text-base font-medium text-white hover:bg-emerald-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-secondary sm:text-sm transition duration-150">
-                        Ajouter (Elo Initial: ${INITIAL_ELO})
+                        Ajouter (Elo Initial: 300)
                     </button>
                 </div>
 
@@ -767,20 +943,31 @@
         </div>
     </div>
     
-    <!-- Rename Player Modal -->
+    <!-- Rename/Update Player Details Modal -->
     <div id="rename-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full hidden z-50">
         <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-            <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Renommer Joueur</h3>
-            <div class="mt-2">
+            <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Renommer Joueur / Modifier Elo</h3>
+            <div class="mt-2 space-y-4">
                 <input type="hidden" id="rename-player-id">
-                <label for="rename-player-name" class="block text-sm font-medium text-gray-700">Nouveau Nom:</label>
-                <input type="text" id="rename-player-name" 
-                       class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                
+                <div>
+                    <label for="rename-player-name" class="block text-sm font-medium text-gray-700">Nouveau Nom:</label>
+                    <input type="text" id="rename-player-name" 
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                </div>
+                
+                <div>
+                    <!-- Ligne modifiée ici : suppression de "CHAUDER ELO" -->
+                    <label for="new-elo-score" class="block text-sm font-medium text-gray-700">Nouvel Elo:</label>
+                    <input type="number" id="new-elo-score" placeholder="Ex: 1500"
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                </div>
+
                 <p id="rename-modal-message" class="mt-2 text-sm text-center ui-message"></p>
             </div>
             <div class="mt-5 sm:mt-6 sm:grid sm:grid-flow-row-dense sm:grid-cols-2 sm:gap-3">
-                <button onclick="renamePlayer()" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary text-base font-medium text-white hover:bg-primary/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary sm:col-start-2 sm:text-sm transition duration-150">
-                    Confirmer
+                <button onclick="updatePlayerDetails()" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary text-base font-medium text-white hover:bg-primary/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary sm:col-start-2 sm:text-sm transition duration-150">
+                    Confirmer les Modifications
                 </button>
                 <button onclick="toggleRenameModal(false)" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:col-start-1 sm:text-sm transition duration-150">
                     Annuler
