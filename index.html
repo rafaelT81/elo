@@ -25,6 +25,7 @@
     </script>
     
     <!-- Import de jsPDF pour la génération de PDF -->
+    <!-- NOTE: Utiliser l'accès au constructeur via window.jspdf.jsPDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <!-- Import de jspdf-autotable pour les tables PDF -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
@@ -231,7 +232,7 @@
                 // NOTE: Cette fonction effectue des écritures, donc elle doit être appelée APRES l'update de 'players'
                 manageTop1Streak(sortedPlayers); 
                 
-                renderAll();
+                renderAll(); // <--- Rendu complet après chaque synchronisation des données
             }, (error) => {
                 console.error("Erreur d'écoute Firestore:", error);
                 document.getElementById('match-message').textContent = "Erreur de synchronisation des données.";
@@ -337,6 +338,8 @@
                     winRate: p.matches > 0 && p.wins !== undefined && p.matches !== undefined
                         ? ((p.wins / p.matches) * 100).toFixed(1)
                         : '0.0',
+                    // Ajouter le nombre de jours pour la streak
+                    top1Days: p.top1Since ? Math.floor((new Date().getTime() - p.top1Since) / (1000 * 60 * 60 * 24)) : 0
                 }))
                 .sort((a, b) => b.elo - a.elo || a.name.localeCompare(b.name))
                 .map((p, index) => ({
@@ -346,7 +349,7 @@
         }
 
 
-        // --- UI Rendering (Updated to color the top 3 rows and show streak) ---
+        // --- UI Rendering (Updated for Admin Visibility Fix) ---
 
         /**
          * Renders the main ranking table.
@@ -388,10 +391,8 @@
                                 // Calculate days in top 1 if applicable
                                 let top1DaysDisplay = '';
                                 if (p.rank === 1 && p.top1Since) {
-                                    const msPerDay = 1000 * 60 * 60 * 24;
-                                    const days = Math.floor((new Date().getTime() - p.top1Since) / msPerDay);
-                                    // Afficher "Depuis X jours" (Since X days) seulement pour Rank 1
-                                    top1DaysDisplay = `<span class="text-xs font-normal ml-2 opacity-80 whitespace-nowrap"> (Depuis ${days} jours)</span>`;
+                                    // Utiliser la propriété pré-calculée top1Days
+                                    top1DaysDisplay = `<span class="text-xs font-normal ml-2 opacity-80 whitespace-nowrap"> (Depuis ${p.top1Days} jours)</span>`;
                                 }
 
                                 return `
@@ -428,22 +429,30 @@
          * Generates and downloads a PDF of the current ranking table.
          */
         window.downloadRankingPdf = function() {
-            if (typeof window.jsPDF === 'undefined' || typeof window.jspdf.autoTable === 'undefined') {
-                showUIMessage('match-message', 'Erreur: Les librairies PDF ne sont pas chargées correctement.', false);
+            // Accès sécurisé au constructeur jsPDF (commun pour l'import UMD)
+            const jsPDFConstructor = window.jspdf && window.jspdf.jsPDF ? window.jspdf.jsPDF : window.jsPDF;
+
+            if (typeof jsPDFConstructor === 'undefined') {
+                showUIMessage('match-message', 'Erreur: La librairie jsPDF est introuvable.', false);
+                return;
+            }
+            
+            const doc = new jsPDFConstructor('p', 'mm', 'a4'); // 'p' for portrait, 'mm' for units, 'a4' for size
+
+            if (typeof doc.autoTable !== 'function') {
+                showUIMessage('match-message', 'Erreur: Le plugin jspdf-autotable est introuvable. (Vérifiez l\'import)', false);
                 return;
             }
 
-            const { jsPDF } = window.jspdf;
-            const doc = new jsPDF();
-
             const sortedPlayers = getSortedRanking(players);
             const date = new Date().toLocaleDateString('fr-FR');
-
+            const primaryColor = [79, 70, 229]; // Tailwind Indigo 600
+            
             // Préparation des données pour autotable
             const head = [['# Rank / Streak', 'Nom du Joueur', 'Elo', 'Win %', 'Parties Jouées']];
             const body = sortedPlayers.map(p => {
-                let streakText = p.rank === 1 && p.top1Since ? 
-                                 ` (Depuis ${Math.floor((new Date().getTime() - p.top1Since) / (1000 * 60 * 60 * 24))} jours)` : '';
+                const streakText = p.rank === 1 && p.top1Since ? 
+                                 ` (Depuis ${p.top1Days} j)` : '';
                 return [
                     `${p.rank}${streakText}`,
                     p.name,
@@ -453,46 +462,92 @@
                 ];
             });
 
-            // Ajout du titre
-            doc.setFontSize(18);
-            doc.text("Classement JD Elo", 14, 20);
-
+            // Ajout du titre (pour l'impression, on met l'accent sur le tableau)
+            doc.setFontSize(14);
+            doc.text("Classement JD Elo - " + date, 14, 15);
             doc.setFontSize(10);
-            doc.text(`Date de génération : ${date}`, 14, 27);
-
+            
             // Génération du tableau
             doc.autoTable({
-                startY: 35,
+                startY: 20, // Début du tableau un peu plus haut
                 head: head,
                 body: body,
                 theme: 'striped',
                 headStyles: { 
-                    fillColor: [79, 70, 229], // primary color
+                    fillColor: primaryColor, // Utiliser la couleur primaire
                     textColor: 255, 
-                    fontStyle: 'bold' 
+                    fontStyle: 'bold',
+                    fontSize: 9,
+                    valign: 'middle'
                 },
                 styles: { 
-                    font: 'Inter', 
-                    cellPadding: 3, 
-                    fontSize: 10 
+                    font: 'helvetica', // Police par défaut pour jsPDF
+                    cellPadding: 2, 
+                    fontSize: 10,
+                    lineWidth: 0.1, // Ligne très fine pour un look propre
+                    lineColor: [200, 200, 200]
+                },
+                bodyStyles: {
+                    textColor: [30, 30, 30] // Texte foncé
                 },
                 columnStyles: { 
-                    2: { halign: 'right' }, // Elo
-                    3: { halign: 'right' }, // Win %
-                    4: { halign: 'right' }  // Parties
+                    // ALIGNEMENT À DROITE POUR TOUTES LES COLONNES SAUF LE NOM
+                    0: { cellWidth: 35, halign: 'right' }, // # Rank / Streak (Aligné à droite)
+                    1: { halign: 'left' },                 // Nom du Joueur (Laisse à gauche pour le texte)
+                    2: { halign: 'right' },                // Elo
+                    3: { halign: 'right' },                // Win %
+                    4: { halign: 'right' }                 // Parties Jouées
+                },
+                // Hook pour styliser les 3 premières lignes (médailles)
+                didDrawCell: (data) => {
+                    if (data.section === 'body') {
+                        const rank = data.row.index + 1;
+                        let fillColor = null;
+                        
+                        if (rank === 1) fillColor = '#F5E727';
+                        else if (rank === 2) fillColor = '#C0C0C0';
+                        else if (rank === 3) fillColor = '#CD7F32';
+
+                        if (fillColor) {
+                            doc.setFillColor(fillColor);
+                            doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, 'F');
+                            
+                            // Redessiner le texte avec la bonne couleur
+                            const textColor = (rank === 1 || rank === 2) ? '#1f2937' : '#f9fafb'; // Foncé sur Or/Argent, Clair sur Bronze
+                            doc.setTextColor(textColor);
+                            
+                            // Récupérer les coordonnées et l'alignement
+                            const text = data.cell.text;
+                            let x = data.cell.x + data.cell.padding('left'); // Default to left padding
+                            const y = data.cell.y + data.cell.height / 2;
+                            let align = 'left';
+
+                            // Appliquer l'alignement à droite si la colonne n'est pas la colonne du Nom
+                            if (data.column.index !== 1) { 
+                                x = data.cell.x + data.cell.width - data.cell.padding('right');
+                                align = 'right';
+                            }
+                            
+                            doc.text(text, x, y, { baseline: 'middle', align: align });
+                            
+                            // Empêcher autoTable de redessiner le texte de cette cellule
+                            data.cell.text = '';
+                        }
+                    }
                 }
             });
 
+            // Enregistrement du fichier
             doc.save(`Classement_JD_Elo_${date}.pdf`);
         };
 
 
         /**
-         * Updates the Admin UI elements based on isAdmin state.
+         * Met à jour la visibilité des éléments de l'interface Admin (boutons, containers).
+         * @returns {void}
          */
-        function updateAdminButtons() {
+        function updateAdminUiVisibility() {
             const adminLogin = document.getElementById('admin-login-container');
-            // MODIFICATION: Sélectionner le conteneur du Match Recorder
             const matchRecorderContainer = document.getElementById('match-recorder-container'); 
             const adminPencil = document.getElementById('admin-pencil');
             const dbStatus = document.getElementById('db-status');
@@ -514,9 +569,8 @@
                 dbStatus.className = "bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded-full";
                 dbStatus.textContent = "☁️ Lecture Seule";
             }
-            renderMatchRecorder();
-            renderPlayerManager();
         }
+
 
         /**
          * Renders the match recording form in Admin mode.
@@ -600,12 +654,13 @@
 
         /**
          * Renders all dynamic parts of the UI.
+         * Appelé après chaque sync Firestore et après la connexion Admin.
          */
         function renderAll() {
-             renderRanking();
-             renderMatchRecorder();
-             renderPlayerManager();
-             updateAdminButtons();
+             updateAdminUiVisibility(); // Met à jour la visibilité des boutons/conteneurs basés sur isAdmin
+             renderRanking();           // Re-render le classement (et le bouton PDF si Admin)
+             renderMatchRecorder();     // Re-render l'enregistreur de match
+             renderPlayerManager();     // Re-render le gestionnaire de joueurs
         }
 
         /**
@@ -686,8 +741,9 @@
                 messageElement.className = "text-green-600 text-sm";
                 passwordInput.value = '';
                 toggleModal('admin-login-modal', false);
-                updateAdminButtons();
+                renderAll(); // <-- FIX: Appel immédiat du rendu complet
             } else {
+                isAdmin = false;
                 messageElement.textContent = "Mot de passe incorrect.";
                 messageElement.className = "text-red-600 text-sm";
             }
@@ -950,7 +1006,7 @@
         function initializeApplication() {
             // Démarre l'initialisation de Firebase (qui s'occupe de la sync de données)
             initializeFirebase();
-            updateAdminButtons(); // Pour montrer les boutons d'admin dès le départ
+            updateAdminUiVisibility(); // Initial setup of UI visibility (before full rendering)
         }
 
         // Initialize the app when the window loads
