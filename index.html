@@ -24,6 +24,12 @@
         };
     </script>
     
+    <!-- Import de jsPDF pour la génération de PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <!-- Import de jspdf-autotable pour les tables PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+
+    
     <!-- Configuration des polices et du thème Tailwind -->
     <script>
         tailwind.config = {
@@ -96,7 +102,7 @@
         // Constants
         const INITIAL_ELO = 300; // Elo initial pour les nouveaux joueurs
         const K_FACTOR = 96; // Facteur K pour un classement 3x plus rapide
-        const ADMIN_PASSWORD = "0000"; // Mot de passe admin local (ne sera pas dans Firestore)
+        const ADMIN_PASSWORD = "techno"; // Mot de passe admin changé pour "techno"
 
         // Codes de couleur des médailles
         const MEDAL_COLORS = {
@@ -206,7 +212,15 @@
                 snapshot.forEach((doc) => {
                     // Firestore stocke l'ID dans doc.id, non dans le document lui-même. 
                     // Ajout d'une valeur par défaut pour top1Since pour éviter les erreurs.
-                    updatedPlayers[doc.id] = { id: doc.id, top1Since: null, ...doc.data() };
+                    updatedPlayers[doc.id] = { 
+                        id: doc.id, 
+                        top1Since: null, 
+                        wins: 0, 
+                        losses: 0,
+                        matches: 0,
+                        elo: INITIAL_ELO,
+                        ...doc.data() 
+                    };
                 });
                 players = updatedPlayers;
                 
@@ -319,7 +333,10 @@
                     // S'assurer que top1Since est bien un nombre ou null
                     top1Since: p.top1Since && typeof p.top1Since === 'number' ? p.top1Since : null, 
                     // Calcul du pourcentage de victoires
-                    winRate: p.matches > 0 ? ((p.wins / p.matches) * 100).toFixed(1) : '0.0',
+                    // S'assurer que wins/matches existent pour éviter NaN
+                    winRate: p.matches > 0 && p.wins !== undefined && p.matches !== undefined
+                        ? ((p.wins / p.matches) * 100).toFixed(1)
+                        : '0.0',
                 }))
                 .sort((a, b) => b.elo - a.elo || a.name.localeCompare(b.name))
                 .map((p, index) => ({
@@ -339,6 +356,7 @@
             if (!rankingList) return;
 
             const sortedPlayers = getSortedRanking(players);
+            const isAdminMode = isAdmin; // Utiliser la variable isAdmin
 
             if (Object.keys(players).length === 0) {
                 rankingList.innerHTML = '<p class="text-gray-500 text-center py-8">Aucun joueur dans le classement pour le moment. Connectez-vous en Admin pour en ajouter.</p>';
@@ -346,7 +364,7 @@
             }
 
             rankingList.innerHTML = `
-                <div class="overflow-x-auto">
+                <div class="overflow-x-auto mb-6">
                     <table class="min-w-full divide-y divide-gray-200 shadow-xl rounded-lg overflow-hidden">
                         <thead class="bg-primary/90 text-white">
                             <tr>
@@ -394,8 +412,80 @@
                         </tbody>
                     </table>
                 </div>
+                ${isAdminMode ? `
+                    <div class="flex justify-center mt-6">
+                        <button onclick="downloadRankingPdf()" 
+                                class="px-6 py-2 bg-indigo-500 text-white text-sm font-medium rounded-md hover:bg-indigo-600 transition duration-150 shadow-md flex items-center">
+                            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H5a2 2 0 01-2-2v-4c0-1.1.9-2 2-2h14a2 2 0 012 2v4c0 1.1-.9 2-2 2z"></path></svg>
+                            Télécharger en PDF
+                        </button>
+                    </div>
+                ` : ''}
             `;
         }
+
+        /**
+         * Generates and downloads a PDF of the current ranking table.
+         */
+        window.downloadRankingPdf = function() {
+            if (typeof window.jsPDF === 'undefined' || typeof window.jspdf.autoTable === 'undefined') {
+                showUIMessage('match-message', 'Erreur: Les librairies PDF ne sont pas chargées correctement.', false);
+                return;
+            }
+
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+
+            const sortedPlayers = getSortedRanking(players);
+            const date = new Date().toLocaleDateString('fr-FR');
+
+            // Préparation des données pour autotable
+            const head = [['# Rank / Streak', 'Nom du Joueur', 'Elo', 'Win %', 'Parties Jouées']];
+            const body = sortedPlayers.map(p => {
+                let streakText = p.rank === 1 && p.top1Since ? 
+                                 ` (Depuis ${Math.floor((new Date().getTime() - p.top1Since) / (1000 * 60 * 60 * 24))} jours)` : '';
+                return [
+                    `${p.rank}${streakText}`,
+                    p.name,
+                    p.elo,
+                    `${p.winRate}%`,
+                    p.matches
+                ];
+            });
+
+            // Ajout du titre
+            doc.setFontSize(18);
+            doc.text("Classement JD Elo", 14, 20);
+
+            doc.setFontSize(10);
+            doc.text(`Date de génération : ${date}`, 14, 27);
+
+            // Génération du tableau
+            doc.autoTable({
+                startY: 35,
+                head: head,
+                body: body,
+                theme: 'striped',
+                headStyles: { 
+                    fillColor: [79, 70, 229], // primary color
+                    textColor: 255, 
+                    fontStyle: 'bold' 
+                },
+                styles: { 
+                    font: 'Inter', 
+                    cellPadding: 3, 
+                    fontSize: 10 
+                },
+                columnStyles: { 
+                    2: { halign: 'right' }, // Elo
+                    3: { halign: 'right' }, // Win %
+                    4: { halign: 'right' }  // Parties
+                }
+            });
+
+            doc.save(`Classement_JD_Elo_${date}.pdf`);
+        };
+
 
         /**
          * Updates the Admin UI elements based on isAdmin state.
@@ -487,10 +577,16 @@
             // Populate current players for rename/remove
             playerListContainer.innerHTML = sortedPlayers.map(p => `
                 <li class="flex items-center justify-between py-2 border-b border-gray-100">
-                    <span class="text-gray-700">${p.name} (Elo: ${p.elo})</span>
+                    <span class="text-gray-700">${p.name} (Elo: ${p.elo}, W: ${p.wins}, L: ${p.losses})</span>
                     <div class="space-x-2">
-                        <button onclick="document.getElementById('rename-player-id').value='${p.id}'; document.getElementById('rename-player-name').value='${p.name}'; document.getElementById('new-elo-score').value='${p.elo}'; toggleRenameModal(true);"
-                                class="text-blue-500 hover:text-blue-700 p-1 rounded-full hover:bg-blue-100 transition duration-150" title="Renommer / Modifier Elo">
+                        <button onclick="
+                                document.getElementById('rename-player-id').value='${p.id}'; 
+                                document.getElementById('rename-player-name').value='${p.name}'; 
+                                document.getElementById('new-elo-score').value='${p.elo}';
+                                document.getElementById('new-wins').value='${p.wins}'; 
+                                document.getElementById('new-losses').value='${p.losses}'; 
+                                toggleRenameModal(true);"
+                                class="text-blue-500 hover:text-blue-700 p-1 rounded-full hover:bg-blue-100 transition duration-150" title="Renommer / Modifier Stats">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
                         </button>
                         <button onclick="confirmRemovePlayer('${p.id}', '${p.name}')"
@@ -671,7 +767,7 @@
         }
 
         /**
-         * Renames a player and/or changes their Elo in Firestore.
+         * Renames a player and/or changes their Elo/Stats in Firestore.
          */
         window.updatePlayerDetails = async function() {
             if (!isAdmin || !firebaseReady) return;
@@ -679,6 +775,8 @@
             const playerId = document.getElementById('rename-player-id').value;
             const newName = document.getElementById('rename-player-name').value.trim();
             const newEloValue = document.getElementById('new-elo-score').value.trim();
+            const newWinsValue = document.getElementById('new-wins').value.trim();
+            const newLossesValue = document.getElementById('new-losses').value.trim();
             const messageElement = document.getElementById('rename-modal-message');
 
             const currentPlayer = players[playerId];
@@ -708,16 +806,43 @@
             
             // 2. Validation et traitement de l'Elo
             let newElo = parseInt(newEloValue, 10);
-            
-            // newEloValue devrait toujours être le current Elo si non modifié (car pré-rempli)
             if (isNaN(newElo)) {
                 showUIMessage('rename-modal-message', "Le score Elo doit être un nombre valide.", false);
                 return;
             }
-
             if (newElo !== currentPlayer.elo) {
                 updateData.elo = newElo;
                 logMessage.push(`Elo: ${currentPlayer.elo} -> ${newElo}`);
+            }
+
+            // 3. Validation et traitement des Victoires (Wins)
+            let newWins = parseInt(newWinsValue, 10);
+            if (isNaN(newWins) || newWins < 0) {
+                showUIMessage('rename-modal-message', "Le nombre de victoires doit être un nombre positif.", false);
+                return;
+            }
+            if (newWins !== currentPlayer.wins) {
+                updateData.wins = newWins;
+                logMessage.push(`Victoires: ${currentPlayer.wins} -> ${newWins}`);
+            }
+            
+            // 4. Validation et traitement des Défaites (Losses)
+            let newLosses = parseInt(newLossesValue, 10);
+            if (isNaN(newLosses) || newLosses < 0) {
+                showUIMessage('rename-modal-message', "Le nombre de défaites doit être un nombre positif.", false);
+                return;
+            }
+            if (newLosses !== currentPlayer.losses) {
+                updateData.losses = newLosses;
+                logMessage.push(`Défaites: ${currentPlayer.losses} -> ${newLosses}`);
+            }
+            
+            // 5. Mise à jour des matchs joués (Matches) en fonction des nouvelles Victoires/Défaites
+            const newMatches = newWins + newLosses;
+            // Ne mettre à jour 'matches' que si wins ou losses ont changé, ou si 'matches' était erroné.
+            if (newMatches !== currentPlayer.matches) {
+                updateData.matches = newMatches;
+                logMessage.push(`Parties Jouées: ${currentPlayer.matches} -> ${newMatches}`);
             }
             
             if (Object.keys(updateData).length === 0) {
@@ -726,7 +851,7 @@
                 return;
             }
 
-            // 3. Mise à jour Firestore
+            // 6. Mise à jour Firestore
             try {
                 const { setDoc, doc } = window.firebase;
                 const playerRef = doc(db, getCollectionPath(), playerId);
@@ -734,7 +859,7 @@
                 // Utiliser setDoc avec merge:true pour mettre à jour uniquement les champs dans updateData
                 await setDoc(playerRef, updateData, { merge: true });
 
-                showUIMessage('rename-modal-message', `Joueur mis à jour: ${logMessage.join(' et ')}!`);
+                showUIMessage('rename-modal-message', `Joueur mis à jour: ${logMessage.join(' | ')}!`);
                 setTimeout(() => toggleModal('rename-modal', false), 1500); // Ferme après succès
             } catch (error) {
                 console.error("Erreur lors de la modification du joueur:", error);
@@ -797,15 +922,15 @@
                     // 3. Mettre à jour les données du gagnant
                     transaction.set(winnerRef, { 
                         elo: newRa, 
-                        wins: winnerSnapshot.data().wins + 1, 
-                        matches: winnerSnapshot.data().matches + 1 
+                        wins: (winnerSnapshot.data().wins || 0) + 1, 
+                        matches: (winnerSnapshot.data().matches || 0) + 1 
                     }, { merge: true });
                     
                     // 4. Mettre à jour les données du perdant
                     transaction.set(loserRef, { 
                         elo: newRb, 
-                        losses: loserSnapshot.data().losses + 1, 
-                        matches: loserSnapshot.data().matches + 1 
+                        losses: (loserSnapshot.data().losses || 0) + 1, 
+                        matches: (loserSnapshot.data().matches || 0) + 1 
                     }, { merge: true });
                 });
                 
@@ -887,7 +1012,7 @@
 
         <!-- Ranking Table Container - LAISSER ICI POUR LE CLASSEMENT PRINCIPAL -->
         <section id="ranking-list" class="mt-8">
-            <!-- Ranking table will be rendered here by JS -->
+            <!-- Ranking table and PDF button will be rendered here by JS -->
         </section>
 
     </main>
@@ -936,7 +1061,7 @@
 
                 <!-- Player List Section -->
                 <div class="p-4 bg-white rounded-lg border border-gray-200">
-                    <h4 class="text-xl font-semibold mb-3 text-primary">Liste & Actions (Renommer/Supprimer)</h4>
+                    <h4 class="text-xl font-semibold mb-3 text-primary">Liste & Actions (Renommer/Modifier Stats)</h4>
                     <ul id="player-list-container" class="max-h-60 overflow-y-auto space-y-1">
                         <!-- Player list will be rendered here by JS -->
                     </ul>
@@ -949,7 +1074,7 @@
     <!-- Rename/Update Player Details Modal -->
     <div id="rename-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full hidden z-50">
         <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-            <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Renommer Joueur / Modifier Elo</h3>
+            <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Renommer Joueur / Modifier Stats</h3>
             <div class="mt-2 space-y-4">
                 <input type="hidden" id="rename-player-id">
                 
@@ -960,9 +1085,22 @@
                 </div>
                 
                 <div>
-                    <!-- Ligne modifiée ici : suppression de "CHAUDER ELO" -->
                     <label for="new-elo-score" class="block text-sm font-medium text-gray-700">Nouvel Elo:</label>
                     <input type="number" id="new-elo-score" placeholder="Ex: 1500"
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                </div>
+                
+                <!-- Nouveau champ pour les Victoires (Wins) -->
+                <div>
+                    <label for="new-wins" class="block text-sm font-medium text-gray-700">Nouvelles Victoires (W):</label>
+                    <input type="number" id="new-wins" placeholder="Ex: 10" min="0"
+                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                </div>
+
+                <!-- Nouveau champ pour les Défaites (Losses) -->
+                <div>
+                    <label for="new-losses" class="block text-sm font-medium text-gray-700">Nouvelles Défaites (L):</label>
+                    <input type="number" id="new-losses" placeholder="Ex: 5" min="0"
                            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
                 </div>
 
