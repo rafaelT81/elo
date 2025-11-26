@@ -90,6 +90,48 @@
         .min-w-full {
              min-width: 100%;
         }
+        
+        /* Style pour la bascule personnalisée */
+        .match-mode-toggle {
+            display: flex;
+            padding: 0; /* Important: Retiré le padding extérieur */
+            background-color: transparent; /* Rendre le fond transparent pour que les boutons actifs le remplissent */
+            border-radius: 9999px; /* rounded-full */
+            overflow: hidden;
+            width: 100%;
+            max-width: 400px;
+            margin: 0 auto;
+            border: 4px solid #e5e7eb; /* Bordure pour encadrer l'ensemble */
+        }
+        .match-mode-button {
+            flex-grow: 1;
+            padding: 8px 16px;
+            font-size: 0.875rem; /* sm:text-sm */
+            font-weight: 500;
+            /* Pas de border-radius ici, géré par le conteneur */
+            transition: all 0.2s ease-in-out;
+            text-align: center;
+            cursor: pointer;
+            line-height: 1.25; /* Assure un bon alignement du texte */
+        }
+        .match-mode-button.active {
+            background-color: #4f46e5; /* primary color */
+            color: white;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+        }
+        .match-mode-button:not(.active) {
+            color: #4b5563; /* gray-600 */
+            background-color: #e5e7eb; /* gray-200 pour le fond inactif */
+        }
+        /* Styles spécifiques pour les coins arrondis des boutons à l'intérieur du conteneur */
+        .match-mode-toggle .match-mode-button:first-child {
+            border-top-left-radius: 9999px;
+            border-bottom-left-radius: 9999px;
+        }
+        .match-mode-toggle .match-mode-button:last-child {
+            border-top-right-radius: 9999px;
+            border-bottom-right-radius: 9999px;
+        }
     </style>
     
     <script type="text/javascript">
@@ -98,7 +140,8 @@
         let isAdmin = false;
         let confirmationCallback = null; // Global variable for confirmation callback
         let firebaseReady = false; // Indicates if Auth and Firestore are initialized
-
+        let matchMode = 'WIN_LOSS'; // NOUVEAU: 'WIN_LOSS' ou 'DRAW' pour la bascule
+        
         // Firebase Instances
         let db;
         let auth;
@@ -109,8 +152,9 @@
         
         // Constants
         const INITIAL_ELO = 500; // Elo initial pour les nouveaux joueurs
-        const K_FACTOR = 96; // Facteur K pour un classement 3x plus rapide
-        const ADMIN_PASSWORD = "techno"; // Mot de passe admin changé pour "techno"
+        const K_FACTOR_WIN = 75; // Facteur K pour une victoire standard
+        const K_FACTOR_DRAW = 10; // Facteur K pour le joueur le plus faible lors d'un match nul (selon la règle spéciale)
+        const ADMIN_PASSWORD = "techno"; // Mot de passe admin
         // --- MODIFICATION: URL de l'application Google Apps Script pour l'historique ---
         const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz9V5JR0lI6-VQXbht0JVdyTi1aa6eHQtCof193WNk8O1A3Q-Nj5K4SU2ypVI9VoM7e/exec"; // REMPLACER CECI
         // ---------------------------------------------------------------------------------
@@ -169,7 +213,6 @@
                 db = getFirestore(app);
                 auth = getAuth(app);
                 
-                // Active le niveau de log Debug pour voir les activités Firestore
                 // setLogLevel('Debug'); 
 
                 document.getElementById('loading-message').textContent = "Connexion à Firebase...";
@@ -221,8 +264,6 @@
             onSnapshot(q, (snapshot) => {
                 const updatedPlayers = {};
                 snapshot.forEach((doc) => {
-                    // Firestore stocke l'ID dans doc.id, non dans le document lui-même. 
-                    // Ajout d'une valeur par défaut pour top1Since pour éviter les erreurs.
                     updatedPlayers[doc.id] = { 
                         id: doc.id, 
                         top1Since: null, 
@@ -238,8 +279,6 @@
                 const sortedPlayers = getSortedRanking(players);
                 console.log("Données de classement synchronisées en temps réel.");
                 
-                // Gérer la streak Top 1 après chaque mise à jour des données
-                // NOTE: Cette fonction effectue des écritures, donc elle doit être appelée APRES l'update de 'players'
                 manageTop1Streak(sortedPlayers); 
                 
                 renderAll(); // <--- Rendu complet après chaque synchronisation des données
@@ -252,28 +291,23 @@
         
         /**
          * Manages the top1Since field for players to track the streak duration.
-         * This runs after every data snapshot update. It is non-atomic relative to match updates.
          */
         async function manageTop1Streak(sortedPlayers) {
             if (!firebaseReady || sortedPlayers.length === 0 || !db) return;
             
             const { setDoc, doc } = window.firebase;
             
-            // 1. Déterminer le nouveau joueur Rank 1
             const newTopPlayer = sortedPlayers[0];
             const newTopId = newTopPlayer.id;
 
-            // 2. Identifier le joueur qui *actuellement* a le top1Since (l'ancien Top 1)
             let oldTopIdWithStamp = null;
             for (const id in players) {
-                // Nous lisons directement la variable globale 'players' qui contient la dernière version de la DB
                 if (players[id].top1Since) {
                     oldTopIdWithStamp = id;
                     break;
                 }
             }
             
-            // 3. Mettre à jour si le Top 1 a changé
             if (newTopId !== oldTopIdWithStamp) {
                 
                 console.log(`Changement de Rank 1 détecté: ${oldTopIdWithStamp || 'N/A'} -> ${newTopId}`);
@@ -291,8 +325,6 @@
                 // B) Définir le timestamp pour le nouveau Top 1
                 const newRef = doc(db, getCollectionPath(), newTopId);
                 try {
-                    // Toujours définir un nouveau timestamp (maintenant) pour le nouveau Top 1
-                    // car il vient juste d'atteindre la place (ou le perdant vient de perdre).
                     await setDoc(newRef, { top1Since: new Date().getTime() }, { merge: true });
                 } catch (e) {
                     console.error("Échec de la définition du nouveau top1Since:", e);
@@ -307,7 +339,6 @@
                     console.error("Échec de la définition initiale de top1Since:", e);
                  }
             }
-            // Si newTopId est le même que oldTopIdWithStamp ET top1Since est déjà défini, rien à faire.
         }
 
 
@@ -321,17 +352,17 @@
         }
 
         /**
-         * Calculates the new Elo ratings after a match.
+         * Calculates the new Elo rating for a single player.
+         * @param {number} R_current - Current Elo of the player.
+         * @param {number} R_opponent - Elo of the opponent.
+         * @param {number} S - Score achieved (1 for win, 0 for loss).
+         * @param {number} K - K-factor.
+         * @returns {number} The new Elo rating.
          */
-        function calculateNewElos(Ra, Rb) {
-            const Ea = calculateExpectedScore(Ra, Rb);
-            const Eb = calculateExpectedScore(Rb, Ra);
-            
-            // Score Sa = 1 (Win for A), Sb = 0 (Loss for B)
-            const newRa = Ra + K_FACTOR * (1 - Ea);
-            const newRb = Rb + K_FACTOR * (0 - Eb);
-
-            return { newRa: Math.round(newRa), newRb: Math.round(newRb) };
+        function calculateNewElo(R_current, R_opponent, S, K) {
+            const E = calculateExpectedScore(R_current, R_opponent);
+            const newR = R_current + K * (S - E);
+            return Math.round(newR);
         }
 
         /**
@@ -344,7 +375,6 @@
                     // S'assurer que top1Since est bien un nombre ou null
                     top1Since: p.top1Since && typeof p.top1Since === 'number' ? p.top1Since : null, 
                     // Calcul du pourcentage de victoires
-                    // S'assurer que wins/matches existent pour éviter NaN
                     winRate: p.matches > 0 && p.wins !== undefined && p.matches !== undefined
                         ? ((p.wins / p.matches) * 100).toFixed(1)
                         : '0.0',
@@ -361,7 +391,6 @@
         /**
          * Toggles the visibility of the detail row for a given player ID, 
          * ensuring only one row is open at a time (accordion behavior).
-         * @param {string} playerId The ID of the player whose details should be toggled.
          */
         window.toggleDetails = function(playerId) {
             const detailRow = document.getElementById(`detail-row-${playerId}`);
@@ -369,10 +398,8 @@
             
             if (!detailRow || !button) return;
 
-            // Vrai si on est en train de fermer la ligne actuellement ouverte
             const isClosingCurrent = openDetailRowId === playerId;
 
-            // 1. Fermer la ligne précédemment ouverte (si elle existe et n'est pas la ligne actuelle)
             if (openDetailRowId && openDetailRowId !== playerId) {
                 const prevDetailRow = document.getElementById(`detail-row-${openDetailRowId}`);
                 const prevButton = document.getElementById(`detail-button-${openDetailRowId}`);
@@ -381,19 +408,15 @@
                     prevDetailRow.classList.add('hidden');
                 }
                 if (prevButton) {
-                    // Remettre la flèche vers le bas (état fermé)
                     prevButton.querySelector('svg').innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>';
                 }
             }
 
-            // 2. Ouvrir ou Fermer la ligne cliquée
             if (isClosingCurrent) {
-                // Fermeture
                 detailRow.classList.add('hidden');
                 button.querySelector('svg').innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>';
                 openDetailRowId = null;
             } else {
-                // Ouverture
                 detailRow.classList.remove('hidden');
                 button.querySelector('svg').innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path>';
                 openDetailRowId = playerId;
@@ -401,7 +424,7 @@
         }
 
 
-        // --- UI Rendering (Updated for Mobile Details Row) ---
+        // --- UI Rendering ---
 
         /**
          * Renders the main ranking table.
@@ -411,7 +434,7 @@
             if (!rankingList) return;
 
             const sortedPlayers = getSortedRanking(players);
-            const isAdminMode = isAdmin; // Utiliser la variable isAdmin
+            const isAdminMode = isAdmin;
 
             if (Object.keys(players).length === 0) {
                 rankingList.innerHTML = '<p class="text-gray-500 text-center py-8">Aucun joueur dans le classement pour le moment. Connectez-vous en Admin pour en ajouter.</p>';
@@ -419,60 +442,44 @@
             }
 
             rankingList.innerHTML = `
-                <!-- MODIFIÉ: Retrait de overflow-x-auto pour forcer l'ajustement -->
                 <div class="mb-6"> 
                     <table class="min-w-full divide-y divide-gray-200 shadow-xl rounded-lg overflow-hidden">
                         <thead class="bg-primary/90 text-white">
                             <tr>
-                                <!-- MODIFIÉ: Changé le titre de la colonne et padding à px-2 -->
                                 <th class="px-2 sm:px-6 py-3 text-left text-xs font-bold uppercase tracking-wider"># Rank</th>
-                                <!-- MODIFIÉ: padding à px-2 -->
                                 <th class="px-2 sm:px-6 py-3 text-left text-xs font-bold uppercase tracking-wider">Nom du Joueur</th>
-                                <!-- MODIFIÉ: padding à px-2 -->
                                 <th class="px-2 sm:px-6 py-3 text-right text-xs font-bold uppercase tracking-wider">Elo</th>
-                                <!-- Colonnes numériques alignées à droite pour une meilleure lisibilité (Masqué sur mobile) -->
                                 <th class="px-6 py-3 text-right text-xs font-bold uppercase tracking-wider hidden sm:table-cell">Win %</th>
                                 <th class="px-6 py-3 text-right text-xs font-bold uppercase tracking-wider hidden sm:table-cell">Parties Jouées</th>
-                                <!-- MODIFIÉ: padding à px-2 -->
                                 <th class="px-2 py-3 text-center text-xs font-bold uppercase tracking-wider sm:hidden">...</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
                             ${sortedPlayers.map(p => {
-                                // Déterminer si cette ligne de détails DOIT être ouverte après le rendu (basé sur l'état JS)
                                 const isDetailOpen = openDetailRowId === p.id;
                                 
                                 let rowColor = MEDAL_COLORS[p.rank] || '';
                                 let textColorClass = MEDAL_TEXT_COLOR[p.rank] || 'text-gray-900';
                                 
-                                // Determine the row class and style
                                 const rowClass = rowColor ? `shadow-inner transform hover:scale-[1.01] transition duration-150 ease-in-out` : `bg-white hover:bg-indigo-50 transition duration-150 ease-in-out`;
                                 const rowStyle = rowColor ? `style="background-color: ${rowColor};"` : '';
                                 
-                                // Suppression de top1DaysDisplay ici pour gagner de l'espace horizontal sur mobile
-
-                                // Génération des deux lignes (principale + détails)
                                 return `
                                     <!-- Ligne Principale -->
                                     <tr class="${rowClass}" ${rowStyle}>
-                                        <!-- MODIFIÉ: px-2 sm:px-6, et retrait de l'affichage de la streak -->
                                         <td class="px-2 sm:px-6 py-4 whitespace-nowrap text-sm font-medium ${textColorClass}">
                                             <span class="font-bold">${p.rank === 1 ? '🥇' : p.rank === 2 ? '🥈' : p.rank === 3 ? '🥉' : p.rank}</span>
                                         </td>
-                                        <!-- MODIFIÉ: px-2 sm:px-6 -->
                                         <td class="px-2 sm:px-6 py-4 whitespace-nowrap text-sm ${textColorClass}">${p.name}</td>
-                                        <!-- MODIFIÉ: px-2 sm:px-6 -->
                                         <td class="px-2 sm:px-6 py-4 whitespace-nowrap text-sm text-right font-bold ${textColorClass}">${p.elo}</td>
-                                        <!-- Colonnes masquées sur mobile -->
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-medium ${p.winRate >= 50 ? 'text-secondary' : 'text-yellow-800'} hidden sm:table-cell">${p.winRate}%</td>
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-right ${textColorClass} hidden sm:table-cell">${p.matches}</td>
                                         
-                                        <!-- Bouton Détails pour Mobile (MODIFIÉ: px-2) -->
+                                        <!-- Bouton Détails pour Mobile -->
                                         <td class="px-2 py-4 text-center sm:hidden">
                                             <button id="detail-button-${p.id}" onclick="toggleDetails('${p.id}')" 
                                                     class="p-1 rounded-full text-primary hover:bg-primary/10 transition duration-150">
                                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                                                    <!-- Icone: Flèche vers le bas si fermé, Flèche vers le haut si ouvert -->
                                                     ${isDetailOpen 
                                                         ? '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path>'
                                                         : '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>'}
@@ -481,11 +488,10 @@
                                         </td>
                                     </tr>
                                     
-                                    <!-- Ligne de Détails (Cachée par défaut sur mobile, Masquée sur desktop) -->
+                                    <!-- Ligne de Détails -->
                                     <tr id="detail-row-${p.id}" class="detail-row ${isDetailOpen ? '' : 'hidden'} sm:hidden">
                                         <td colspan="4" class="p-4 bg-gray-50 border-t border-gray-200">
                                             <div class="text-xs space-y-1 ${textColorClass}">
-                                                <!-- AJOUTÉ: Affichage de la série Top 1 ici -->
                                                 ${p.rank === 1 && p.top1Since ? `
                                                     <div class="flex justify-between font-semibold text-primary">
                                                         <span>Série Top 1 en cours :</span>
@@ -525,6 +531,225 @@
         }
 
         /**
+         * Change le mode d'enregistrement de match et re-render le formulaire.
+         */
+        window.setMatchMode = function(mode) {
+            matchMode = mode;
+            renderMatchRecorder();
+        }
+
+        /**
+         * Renders the match recording form in Admin mode based on the current mode.
+         */
+        function renderMatchRecorder() {
+            const matchRecorder = document.getElementById('match-recorder');
+            const sortedPlayers = getSortedRanking(players);
+
+            if (sortedPlayers.length < 2) {
+                matchRecorder.innerHTML = '<p class="text-sm text-yellow-600">Ajoutez au moins deux joueurs pour enregistrer un match.</p>';
+                return;
+            }
+
+            const defaultOption = '<option value="" disabled selected>-- Sélectionner --</option>';
+            const playerOptions = sortedPlayers.map(p => 
+                `<option value="${p.id}">${p.name}</option>`
+            ).join('');
+            const optionsHtml = defaultOption + playerOptions;
+
+            let title, label1, label2, buttonText, buttonClass;
+            
+            // Logique d'affichage en fonction du mode (WIN_LOSS ou DRAW)
+            if (matchMode === 'WIN_LOSS') {
+                title = "Enregistrer une Victoire / Défaite";
+                label1 = "Gagnant :";
+                label2 = "Perdant :";
+                buttonText = "Enregistrer la Victoire";
+                buttonClass = "bg-secondary hover:bg-emerald-600 focus:ring-secondary";
+            } else { // DRAW mode
+                title = "Enregistrer un Match Nul";
+                label1 = "Joueur A :";
+                label2 = "Joueur B :";
+                buttonText = "Enregistrer le Match Nul";
+                buttonClass = "bg-yellow-600 hover:bg-yellow-700 focus:ring-yellow-500";
+            }
+
+            matchRecorder.innerHTML = `
+                <h3 class="text-xl font-semibold mb-4 text-primary text-center">${title}</h3>
+                
+                <!-- Bascule du Mode -->
+                <div class="match-mode-toggle mb-6">
+                    <button id="mode-winloss" 
+                            onclick="setMatchMode('WIN_LOSS')" 
+                            class="match-mode-button ${matchMode === 'WIN_LOSS' ? 'active' : ''}">
+                        Victoire / Défaite
+                    </button>
+                    <button id="mode-draw" 
+                            onclick="setMatchMode('DRAW')" 
+                            class="match-mode-button ${matchMode === 'DRAW' ? 'active' : ''}">
+                        Match Nul
+                    </button>
+                </div>
+                
+                <div class="space-y-4">
+                    
+                    <!-- Sélection des Joueurs -->
+                    <div class="flex flex-col md:flex-row md:space-x-4 space-y-4 md:space-y-0">
+                        
+                        <!-- Section Joueur 1 (Gagnant / Joueur A) -->
+                        <div class="md:w-1/2">
+                            <label for="player-one-select" class="block text-sm font-medium text-gray-700">${label1}</label>
+                            <select id="player-one-select" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md shadow-sm">
+                                ${optionsHtml}
+                            </select>
+                        </div>
+                        
+                        <!-- Section Joueur 2 (Perdant / Joueur B) -->
+                        <div class="md:w-1/2">
+                            <label for="player-two-select" class="block text-sm font-medium text-gray-700">${label2}</label>
+                            <select id="player-two-select" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md shadow-sm">
+                                ${optionsHtml}
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Bouton d'Action -->
+                    <button id="record-match-btn" 
+                            onclick="recordMatch()" 
+                            class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${buttonClass} focus:outline-none focus:ring-2 focus:ring-offset-2 transition duration-150">
+                        ${buttonText}
+                    </button>
+                    <div id="match-message" class="text-sm text-center ui-message"></div>
+                </div>
+            `;
+        }
+
+        /**
+         * Handles the recording of a match result and updates player Elo using a transaction.
+         * LOGIQUE MISE À JOUR POUR UTILISER LE matchMode.
+         */
+        window.recordMatch = async function() {
+            if (!isAdmin || !firebaseReady) return;
+            
+            const playerOneId = document.getElementById('player-one-select').value;
+            const playerTwoId = document.getElementById('player-two-select').value;
+
+            if (!playerOneId || !playerTwoId) {
+                showUIMessage('match-message', "Veuillez sélectionner les deux joueurs.", false);
+                return;
+            }
+
+            if (playerOneId === playerTwoId) {
+                showUIMessage('match-message', "Les joueurs doivent être différents.", false);
+                return;
+            }
+            
+            let winnerId, loserId, K;
+            
+            if (matchMode === 'WIN_LOSS') {
+                // Mode Victoire/Défaite (Win/Loss)
+                K = K_FACTOR_WIN;
+                winnerId = playerOneId; // Player One est le Gagnant
+                loserId = playerTwoId;  // Player Two est le Perdant
+                
+            } else { // matchMode === 'DRAW'
+                // Mode Match Nul (Draw)
+                
+                // 1. Déterminer qui a l'Elo le plus bas (Gagnant conceptuel selon la règle spéciale)
+                const pA = players[playerOneId];
+                const pB = players[playerTwoId];
+                
+                K = K_FACTOR_DRAW;
+                
+                if (pA.elo < pB.elo) {
+                    winnerId = pA.id;
+                    loserId = pB.id;
+                } else if (pB.elo < pA.elo) {
+                    winnerId = pB.id;
+                    loserId = pA.id;
+                } else {
+                    // Elos égaux. On choisit le Joueur A (PlayerOne) comme gagnant conceptuel par défaut.
+                    winnerId = pA.id;
+                    loserId = pB.id;
+                }
+            }
+            
+            // Les données ici sont basées sur le rôle conceptuel (winner gagne points, loser en perd)
+            const winnerData = players[winnerId]; 
+            const loserData = players[loserId]; 
+            
+            try {
+                const { runTransaction, doc } = window.firebase;
+                let eloChangeWinner, eloChangeLoser;
+                let newWinnerElo, newLoserElo;
+
+                await runTransaction(db, async (transaction) => {
+                    // 2. Lire les documents les plus récents dans la transaction
+                    const winnerRef = doc(db, getCollectionPath(), winnerId);
+                    const loserRef = doc(db, getCollectionPath(), loserId);
+                    
+                    const winnerSnapshot = await transaction.get(winnerRef);
+                    const loserSnapshot = await transaction.get(loserRef);
+
+                    if (!winnerSnapshot.exists() || !loserSnapshot.exists()) {
+                        throw "Les documents du joueur n'existent pas ou ont été supprimés.";
+                    }
+
+                    const currentWinnerElo = winnerSnapshot.data().elo;
+                    const currentLoserElo = loserSnapshot.data().elo;
+                    
+                    // 3. Calculer les nouveaux Elos (Score S=1 pour le "gagnant", S=0 pour le "perdant")
+                    newWinnerElo = calculateNewElo(currentWinnerElo, currentLoserElo, 1, K);
+                    newLoserElo = calculateNewElo(currentLoserElo, currentWinnerElo, 0, K);
+
+                    eloChangeWinner = newWinnerElo - currentWinnerElo;
+                    eloChangeLoser = newLoserElo - currentLoserElo;
+
+                    // 4. Mettre à jour les données du gagnant conceptuel (W+1)
+                    transaction.set(winnerRef, { 
+                        elo: newWinnerElo, 
+                        wins: (winnerSnapshot.data().wins || 0) + 1, 
+                        matches: (winnerSnapshot.data().matches || 0) + 1 
+                    }, { merge: true });
+                    
+                    // 5. Mettre à jour les données du perdant conceptuel (L+1)
+                    transaction.set(loserRef, { 
+                        elo: newLoserElo, 
+                        losses: (loserSnapshot.data().losses || 0) + 1, 
+                        matches: (loserSnapshot.data().matches || 0) + 1 
+                    }, { merge: true });
+                });
+                
+                // Si la transaction réussit, afficher le message
+                let successMessage;
+                if (matchMode === 'DRAW') {
+                    successMessage = `Match NUL! ${winnerData.name} (${winnerData.elo} -> ${newWinnerElo}, +${eloChangeWinner}) contre ${loserData.name} (${loserData.elo} -> ${newLoserElo}, ${eloChangeLoser}).`;
+                } else {
+                    successMessage = `Victoire! ${winnerData.name} gagne (${winnerData.elo} -> ${newWinnerElo}, +${eloChangeWinner}) contre ${loserData.name} (${loserData.elo} -> ${newLoserElo}, ${eloChangeLoser}).`;
+                }
+                showUIMessage('match-message', successMessage);
+                
+                // --- AJOUT: Enregistrer l'historique dans Google Sheet (utilise les joueurs conceptuels) ---
+                logMatchToSheet({
+                    winnerId: winnerId,
+                    loserId: loserId,
+                    winnerName: winnerData.name,
+                    loserName: loserData.name,
+                    newWinnerElo: newWinnerElo,
+                    newLoserElo: newLoserElo,
+                    eloChangeWinner: eloChangeWinner,
+                    eloChangeLoser: eloChangeLoser
+                });
+                // --------------------------------------------------------
+
+            } catch (e) {
+                console.error("Erreur lors de l'enregistrement du match (Transaction échouée): ", e);
+                showUIMessage('match-message', `Erreur lors de l'enregistrement du match : Vérifiez la console.`, false);
+            }
+        }
+
+        // --- Autres fonctions (inchangées) ---
+        
+        /**
          * Generates and downloads a PDF of the current ranking table.
          */
         window.downloadRankingPdf = function() {
@@ -561,43 +786,41 @@
                 ];
             });
 
-            // Ajout du titre (pour l'impression, on met l'accent sur le tableau)
+            // Ajout du titre
             doc.setFontSize(14);
             doc.text("Classement JD Elo - " + date, 14, 15);
             doc.setFontSize(10);
             
             // Génération du tableau
             doc.autoTable({
-                startY: 20, // Début du tableau un peu plus haut
+                startY: 20, 
                 head: head,
                 body: body,
                 theme: 'striped',
                 headStyles: { 
-                    fillColor: primaryColor, // Utiliser la couleur primaire
+                    fillColor: primaryColor, 
                     textColor: 255, 
                     fontStyle: 'bold',
                     fontSize: 9,
                     valign: 'middle'
                 },
                 styles: { 
-                    font: 'helvetica', // Police par défaut pour jsPDF
+                    font: 'helvetica', 
                     cellPadding: 2, 
                     fontSize: 10,
-                    lineWidth: 0.1, // Ligne très fine pour un look propre
+                    lineWidth: 0.1, 
                     lineColor: [200, 200, 200]
                 },
                 bodyStyles: {
-                    textColor: [30, 30, 30] // Texte foncé
+                    textColor: [30, 30, 30] 
                 },
                 columnStyles: { 
-                    // ALIGNEMENT À DROITE POUR TOUTES LES COLONNES SAUF LE NOM
-                    0: { cellWidth: 35, halign: 'right' }, // # Rank / Streak (Aligné à droite)
-                    1: { halign: 'left' },                 // Nom du Joueur (Laisse à gauche pour le texte)
-                    2: { halign: 'right' },                // Elo
-                    3: { halign: 'right' },                // Win %
-                    4: { halign: 'right' }                 // Parties Jouées
+                    0: { cellWidth: 35, halign: 'right' }, 
+                    1: { halign: 'left' },                 
+                    2: { halign: 'right' },                
+                    3: { halign: 'right' },                
+                    4: { halign: 'right' }                 
                 },
-                // Hook pour styliser les 3 premières lignes (médailles)
                 didDrawCell: (data) => {
                     if (data.section === 'body') {
                         const rank = data.row.index + 1;
@@ -611,17 +834,14 @@
                             doc.setFillColor(fillColor);
                             doc.rect(data.cell.x, data.cell.y, data.cell.width, data.cell.height, 'F');
                             
-                            // Redessiner le texte avec la bonne couleur
-                            const textColor = (rank === 1 || rank === 2) ? '#1f2937' : '#f9fafb'; // Foncé sur Or/Argent, Clair sur Bronze
+                            const textColor = (rank === 1 || rank === 2) ? '#1f2937' : '#f9fafb'; 
                             doc.setTextColor(textColor);
                             
-                            // Récupérer les coordonnées et l'alignement
                             const text = data.cell.text;
-                            let x = data.cell.x + data.cell.padding('left'); // Default to left padding
+                            let x = data.cell.x + data.cell.padding('left'); 
                             const y = data.cell.y + data.cell.height / 2;
                             let align = 'left';
 
-                            // Appliquer l'alignement à droite si la colonne n'est pas la colonne du Nom
                             if (data.column.index !== 1) { 
                                 x = data.cell.x + data.cell.width - data.cell.padding('right');
                                 align = 'right';
@@ -629,21 +849,18 @@
                             
                             doc.text(text, x, y, { baseline: 'middle', align: align });
                             
-                            // Empêcher autoTable de redessiner le texte de cette cellule
                             data.cell.text = '';
                         }
                     }
                 }
             });
 
-            // Enregistrement du fichier
             doc.save(`Classement_JD_Elo_${date}.pdf`);
         };
 
 
         /**
          * Met à jour la visibilité des éléments de l'interface Admin (boutons, containers).
-         * @returns {void}
          */
         function updateAdminUiVisibility() {
             const adminLogin = document.getElementById('admin-login-container');
@@ -655,75 +872,17 @@
 
             if (isAdmin) {
                 adminLogin.classList.add('hidden');
-                // MODIFICATION: Afficher le Match Recorder
                 matchRecorderContainer.classList.remove('hidden'); 
                 adminPencil.classList.remove('hidden');
                 dbStatus.className = "bg-primary text-white text-xs font-medium px-2.5 py-0.5 rounded-full";
                 dbStatus.textContent = "☁️ Mode Admin (Connecté)";
             } else {
                 adminLogin.classList.remove('hidden');
-                // MODIFICATION: Masquer le Match Recorder
                 matchRecorderContainer.classList.add('hidden'); 
                 adminPencil.classList.add('hidden');
                 dbStatus.className = "bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded-full";
                 dbStatus.textContent = "☁️ Lecture Seule";
             }
-        }
-
-
-        /**
-         * Renders the match recording form in Admin mode.
-         */
-        function renderMatchRecorder() {
-            const matchRecorder = document.getElementById('match-recorder');
-            const sortedPlayers = getSortedRanking(players);
-
-            if (sortedPlayers.length < 2) {
-                matchRecorder.innerHTML = '<p class="text-sm text-yellow-600">Ajoutez au moins deux joueurs pour enregistrer un match.</p>';
-                return;
-            }
-
-            // Générer les options, mais avec une option par défaut vide/désactivée
-            const defaultOption = '<option value="" disabled selected>-- Sélectionner --</option>';
-            
-            // --- MODIFICATION ICI : Afficher SEULEMENT le nom du joueur ---
-            const playerOptions = sortedPlayers.map(p => 
-                `<option value="${p.id}">${p.name}</option>`
-            ).join('');
-            // ------------------------------------------------------------
-            
-            const optionsHtml = defaultOption + playerOptions;
-
-            matchRecorder.innerHTML = `
-                <h3 class="text-xl font-semibold mb-4 text-primary">Enregistrer un Match</h3>
-                <div class="space-y-4">
-                    
-                    <!-- Conteneur Flex pour les deux menus déroulants -->
-                    <div class="flex flex-col md:flex-row md:space-x-4 space-y-4 md:space-y-0">
-                        
-                        <!-- Section Gagnant -->
-                        <div class="md:w-1/2">
-                            <label for="winner-select" class="block text-sm font-medium text-gray-700">Gagnant :</label>
-                            <select id="winner-select" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md shadow-sm">
-                                ${optionsHtml}
-                            </select>
-                        </div>
-                        
-                        <!-- Section Perdant -->
-                        <div class="md:w-1/2">
-                            <label for="loser-select" class="block text-sm font-medium text-gray-700">Perdant :</label>
-                            <select id="loser-select" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-primary focus:border-primary sm:text-sm rounded-md shadow-sm">
-                                ${optionsHtml}
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <button id="record-match-btn" onclick="recordMatch()" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-secondary hover:bg-emerald-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-secondary transition duration-150">
-                        Enregistrer le Résultat
-                    </button>
-                    <div id="match-message" class="text-sm text-center ui-message"></div>
-                </div>
-            `;
         }
 
         /**
@@ -759,13 +918,12 @@
 
         /**
          * Renders all dynamic parts of the UI.
-         * Appelé après chaque sync Firestore et après la connexion Admin.
          */
         function renderAll() {
-             updateAdminUiVisibility(); // Met à jour la visibilité des boutons/conteneurs basés sur isAdmin
-             renderRanking();           // Re-render le classement (et le bouton PDF si Admin)
-             renderMatchRecorder();     // Re-render l'enregistreur de match
-             renderPlayerManager();     // Re-render le gestionnaire de joueurs
+             updateAdminUiVisibility(); 
+             renderRanking();          
+             renderMatchRecorder();     
+             renderPlayerManager();     
         }
 
         /**
@@ -778,13 +936,12 @@
             messageElement.textContent = message;
             messageElement.className = `text-sm text-center ui-message ${isSuccess ? 'text-green-600' : 'text-red-600'} font-medium`;
             
-            // Fade out the message after 5 seconds
             setTimeout(() => {
                 messageElement.classList.add('fade-out');
                 setTimeout(() => {
                     messageElement.textContent = '';
                     messageElement.classList.remove('fade-out');
-                }, 500); // Wait for transition to finish
+                }, 500); 
             }, 5000);
         }
 
@@ -830,7 +987,7 @@
         }
 
 
-        // --- Admin Actions ---
+        // --- Admin Actions (unchanged) ---
 
         /**
          * Handles the Admin Login process.
@@ -846,7 +1003,7 @@
                 messageElement.className = "text-green-600 text-sm";
                 passwordInput.value = '';
                 toggleModal('admin-login-modal', false);
-                renderAll(); // <-- FIX: Appel immédiat du rendu complet
+                renderAll(); 
             } else {
                 isAdmin = false;
                 messageElement.textContent = "Mot de passe incorrect.";
@@ -875,7 +1032,6 @@
             }
 
             try {
-                // Firestore attribue l'ID automatiquement, mais nous le définissons pour la clarté
                 const { setDoc, doc, collection } = window.firebase;
                 const newPlayerRef = doc(collection(db, getCollectionPath())); 
                 const newPlayer = {
@@ -885,7 +1041,7 @@
                     losses: 0,
                     matches: 0,
                     createdAt: new Date().getTime(),
-                    top1Since: null, // Nouveau champ initialisé à null
+                    top1Since: null, 
                     createdBy: userId 
                 };
                 
@@ -1000,7 +1156,6 @@
             
             // 5. Mise à jour des matchs joués (Matches) en fonction des nouvelles Victoires/Défaites
             const newMatches = newWins + newLosses;
-            // Ne mettre à jour 'matches' que si wins ou losses ont changé, ou si 'matches' était erroné.
             if (newMatches !== currentPlayer.matches) {
                 updateData.matches = newMatches;
                 logMessage.push(`Parties Jouées: ${currentPlayer.matches} -> ${newMatches}`);
@@ -1017,7 +1172,6 @@
                 const { setDoc, doc } = window.firebase;
                 const playerRef = doc(db, getCollectionPath(), playerId);
 
-                // Utiliser setDoc avec merge:true pour mettre à jour uniquement les champs dans updateData
                 await setDoc(playerRef, updateData, { merge: true });
 
                 showUIMessage('rename-modal-message', `Joueur mis à jour: ${logMessage.join(' | ')}!`);
@@ -1030,7 +1184,6 @@
         
         /**
          * Enregistre le match dans la feuille Google Sheets via Apps Script.
-         * @param {object} matchData - Les données de match à envoyer.
          */
         async function logMatchToSheet(matchData) {
             if (!GAS_WEB_APP_URL || GAS_WEB_APP_URL === "GAS_WEB_APP_URL_PLACEHOLDER") {
@@ -1041,125 +1194,25 @@
             try {
                 const response = await fetch(GAS_WEB_APP_URL, {
                     method: 'POST',
-                    mode: 'no-cors', // Requis pour les appels GAS (simplifie la gestion CORS)
+                    mode: 'no-cors', 
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    // Le corps doit être sérialisé en chaîne JSON
                     body: JSON.stringify(matchData)
                 });
-
-                // NOTE: Les réponses 'no-cors' sont opaques, donc on ne peut pas lire response.json() ou vérifier response.ok
-                // On log simplement que la requête a été envoyée. Pour un debug réel, on devrait vérifier la feuille.
                 console.log("Requête d'enregistrement de match Apps Script envoyée. Vérifiez Google Sheet.");
                 
             } catch (error) {
                 console.error("Erreur lors de l'envoi des données à Google Sheets:", error);
-                // On n'affiche pas de message d'erreur à l'utilisateur car cela ne bloque pas l'application
             }
         }
-
-
-        /**
-         * Handles the recording of a match result and updates player Elo using a transaction.
-         */
-        window.recordMatch = async function() {
-            if (!isAdmin || !firebaseReady) return;
-            
-            const winnerId = document.getElementById('winner-select').value;
-            const loserId = document.getElementById('loser-select').value;
-
-            if (!winnerId || !loserId) {
-                showUIMessage('match-message', "Veuillez sélectionner le gagnant et le perdant.", false);
-                return;
-            }
-
-            if (winnerId === loserId) {
-                showUIMessage('match-message', "Le gagnant et le perdant doivent être différents.", false);
-                return;
-            }
-            
-            const winnerData = players[winnerId];
-            const loserData = players[loserId];
-
-            if (!winnerData || !loserData) {
-                showUIMessage('match-message', "Erreur: Joueur introuvable.", false);
-                return;
-            }
-
-            try {
-                const { runTransaction, doc } = window.firebase;
-                let eloChangeWinner, eloChangeLoser;
-                let newWinnerElo, newLoserElo;
-
-                await runTransaction(db, async (transaction) => {
-                    // 1. Lire les documents les plus récents dans la transaction
-                    const winnerRef = doc(db, getCollectionPath(), winnerId);
-                    const loserRef = doc(db, getCollectionPath(), loserId);
-                    
-                    const winnerSnapshot = await transaction.get(winnerRef);
-                    const loserSnapshot = await transaction.get(loserRef);
-
-                    if (!winnerSnapshot.exists() || !loserSnapshot.exists()) {
-                        throw "Les documents du joueur n'existent pas ou ont été supprimés.";
-                    }
-
-                    const currentWinnerElo = winnerSnapshot.data().elo;
-                    const currentLoserElo = loserSnapshot.data().elo;
-                    
-                    // 2. Calculer les nouveaux Elos
-                    const calculatedElos = calculateNewElos(currentWinnerElo, currentLoserElo);
-                    newWinnerElo = calculatedElos.newRa;
-                    newLoserElo = calculatedElos.newRb;
-
-                    eloChangeWinner = newWinnerElo - currentWinnerElo;
-                    eloChangeLoser = newLoserElo - currentLoserElo;
-
-                    // 3. Mettre à jour les données du gagnant
-                    transaction.set(winnerRef, { 
-                        elo: newWinnerElo, 
-                        wins: (winnerSnapshot.data().wins || 0) + 1, 
-                        matches: (winnerSnapshot.data().matches || 0) + 1 
-                    }, { merge: true });
-                    
-                    // 4. Mettre à jour les données du perdant
-                    transaction.set(loserRef, { 
-                        elo: newLoserElo, 
-                        losses: (loserSnapshot.data().losses || 0) + 1, 
-                        matches: (loserSnapshot.data().matches || 0) + 1 
-                    }, { merge: true });
-                });
-                
-                // Si la transaction réussit, afficher le message
-                showUIMessage('match-message', `Match enregistré! ${winnerData.name} gagne (+${eloChangeWinner}) contre ${loserData.name} (${eloChangeLoser}).`);
-                
-                // --- AJOUT: Enregistrer l'historique dans Google Sheet ---
-                logMatchToSheet({
-                    winnerId: winnerId,
-                    loserId: loserId,
-                    winnerName: winnerData.name,
-                    loserName: loserData.name,
-                    newWinnerElo: newWinnerElo,
-                    newLoserElo: newLoserElo,
-                    eloChangeWinner: eloChangeWinner,
-                    eloChangeLoser: eloChangeLoser
-                });
-                // --------------------------------------------------------
-
-            } catch (e) {
-                console.error("Erreur lors de l'enregistrement du match (Transaction échouée): ", e);
-                showUIMessage('match-message', `Erreur lors de l'enregistrement du match : Vérifiez la console.`, false);
-            }
-        }
-
 
         /**
          * Initializes the application: loads data and renders UI.
          */
         function initializeApplication() {
-            // Démarre l'initialisation de Firebase (qui s'occupe de la sync de données)
             initializeFirebase();
-            updateAdminUiVisibility(); // Initial setup of UI visibility (before full rendering)
+            updateAdminUiVisibility(); 
         }
 
         // Initialize the app when the window loads
@@ -1197,7 +1250,6 @@
                 </div>
             </div>
         </div>
-        <!-- L'affichage de l'ID utilisateur a été retiré pour l'ergonomie -->
     </header>
 
     <!-- Main Content -->
@@ -1252,7 +1304,7 @@
     <!-- Player Management Modal (Pencil Click) - Increased max-width to max-w-4xl -->
     <div id="player-management-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full hidden z-50">
         <div class="relative top-10 mx-auto p-6 border w-11/12 max-w-4xl shadow-2xl rounded-lg bg-white">
-            <h3 class="text-2xl font-extrabold text-primary border-b pb-2 mb-4">Gestion des Joueurs [Image of game icon]</h3>
+            <h3 class="text-2xl font-extrabold text-primary border-b pb-2 mb-4">Gestion des Joueurs [Image of trophies]</h3>
             <button onclick="togglePlayerManagementModal(false)" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
                 <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
