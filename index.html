@@ -370,17 +370,24 @@
          */
         function getSortedRanking(playerMap) {
             return Object.values(playerMap)
-                .map(p => ({
-                    ...p,
-                    // S'assurer que top1Since est bien un nombre ou null
-                    top1Since: p.top1Since && typeof p.top1Since === 'number' ? p.top1Since : null, 
-                    // Calcul du pourcentage de victoires
-                    winRate: p.matches > 0 && p.wins !== undefined && p.matches !== undefined
-                        ? ((p.wins / p.matches) * 100).toFixed(1)
-                        : '0.0',
-                    // Ajouter le nombre de jours pour la streak
-                    top1Days: p.top1Since ? Math.floor((new Date().getTime() - p.top1Since) / (1000 * 60 * 60 * 24)) : 0
-                }))
+                .map(p => {
+                    const totalWL = p.wins + p.losses;
+                    
+                    // NOUVEAU: Calcul du pourcentage de victoires basé sur Wins / (Wins + Losses)
+                    const winRate = totalWL > 0 && p.wins !== undefined
+                        ? ((p.wins / totalWL) * 100).toFixed(1)
+                        : '0.0';
+                        
+                    return {
+                        ...p,
+                        // S'assurer que top1Since est bien un nombre ou null
+                        top1Since: p.top1Since && typeof p.top1Since === 'number' ? p.top1Since : null, 
+                        // Taux de victoire calculé selon la nouvelle règle
+                        winRate: winRate,
+                        // Ajouter le nombre de jours pour la streak
+                        top1Days: p.top1Since ? Math.floor((new Date().getTime() - p.top1Since) / (1000 * 60 * 60 * 24)) : 0
+                    };
+                })
                 .sort((a, b) => b.elo - a.elo || a.name.localeCompare(b.name))
                 .map((p, index) => ({
                     ...p,
@@ -507,7 +514,7 @@
                                                     <span>${p.matches}</span>
                                                 </div>
                                                 <div class="flex justify-between font-semibold">
-                                                    <span>Taux de Victoire :</span>
+                                                    <span>Taux de Victoire (W/L) :</span>
                                                     <span class="${p.winRate >= 50 ? 'text-secondary' : 'text-yellow-800'}">${p.winRate}%</span>
                                                 </div>
                                             </div>
@@ -566,7 +573,7 @@
                 buttonText = "Enregistrer la Victoire";
                 buttonClass = "bg-secondary hover:bg-emerald-600 focus:ring-secondary";
             } else { // DRAW mode
-                title = "Enregistrer un Match Nul";
+                title = "Enregistrer un Match Nul Spécial";
                 label1 = "Joueur A :";
                 label2 = "Joueur B :";
                 buttonText = "Enregistrer le Match Nul";
@@ -625,7 +632,7 @@
 
         /**
          * Handles the recording of a match result and updates player Elo using a transaction.
-         * LOGIQUE MISE À JOUR POUR UTILISER LE matchMode.
+         * LOGIQUE MISE À JOUR POUR GÉRER matchMode='DRAW' SANS AUGMENTER WINS/LOSSES.
          */
         window.recordMatch = async function() {
             if (!isAdmin || !firebaseReady) return;
@@ -652,9 +659,9 @@
                 loserId = playerTwoId;  // Player Two est le Perdant
                 
             } else { // matchMode === 'DRAW'
-                // Mode Match Nul (Draw)
+                // Mode Match Nul (Draw) - Logique Elo spéciale
                 
-                // 1. Déterminer qui a l'Elo le plus bas (Gagnant conceptuel selon la règle spéciale)
+                // 1. Déterminer qui a l'Elo le plus bas (Gagnant conceptuel pour le K-factor spécial)
                 const pA = players[playerOneId];
                 const pB = players[playerTwoId];
                 
@@ -698,31 +705,58 @@
                     const currentLoserElo = loserSnapshot.data().elo;
                     
                     // 3. Calculer les nouveaux Elos (Score S=1 pour le "gagnant", S=0 pour le "perdant")
+                    // NOTE: La logique Elo standard est conservée, mais avec le K spécial.
                     newWinnerElo = calculateNewElo(currentWinnerElo, currentLoserElo, 1, K);
                     newLoserElo = calculateNewElo(currentLoserElo, currentWinnerElo, 0, K);
 
                     eloChangeWinner = newWinnerElo - currentWinnerElo;
                     eloChangeLoser = newLoserElo - currentLoserElo;
 
-                    // 4. Mettre à jour les données du gagnant conceptuel (W+1)
-                    transaction.set(winnerRef, { 
-                        elo: newWinnerElo, 
-                        wins: (winnerSnapshot.data().wins || 0) + 1, 
-                        matches: (winnerSnapshot.data().matches || 0) + 1 
-                    }, { merge: true });
-                    
-                    // 5. Mettre à jour les données du perdant conceptuel (L+1)
-                    transaction.set(loserRef, { 
-                        elo: newLoserElo, 
-                        losses: (loserSnapshot.data().losses || 0) + 1, 
-                        matches: (loserSnapshot.data().matches || 0) + 1 
-                    }, { merge: true });
+                    // 4. Mettre à jour les données
+                    if (matchMode === 'WIN_LOSS') {
+                        // Mise à jour pour une Victoire/Défaite classique
+                         transaction.set(winnerRef, { 
+                            elo: newWinnerElo, 
+                            wins: (winnerSnapshot.data().wins || 0) + 1, 
+                            matches: (winnerSnapshot.data().matches || 0) + 1 
+                        }, { merge: true });
+                        
+                        transaction.set(loserRef, { 
+                            elo: newLoserElo, 
+                            losses: (loserSnapshot.data().losses || 0) + 1, 
+                            matches: (loserSnapshot.data().matches || 0) + 1 
+                        }, { merge: true });
+                    } else { // matchMode === 'DRAW'
+                        // Mise à jour pour un Match Nul: Elo change mais SEULEMENT 'matches' augmente
+                        
+                        // Joueur 1 (Gagnant conceptuel pour l'Elo, mais pas de 'win' officiel)
+                        transaction.set(winnerRef, { 
+                            elo: newWinnerElo, 
+                            matches: (winnerSnapshot.data().matches || 0) + 1 
+                        }, { merge: true });
+                        
+                        // Joueur 2 (Perdant conceptuel pour l'Elo, mais pas de 'loss' officiel)
+                        transaction.set(loserRef, { 
+                            elo: newLoserElo, 
+                            matches: (loserSnapshot.data().matches || 0) + 1 
+                        }, { merge: true });
+                        
+                        // NOTE IMPORTANTE: 'wins' et 'losses' ne sont PAS incrémentés ici.
+                    }
                 });
                 
                 // Si la transaction réussit, afficher le message
                 let successMessage;
                 if (matchMode === 'DRAW') {
-                    successMessage = `Match NUL! ${winnerData.name} (${winnerData.elo} -> ${newWinnerElo}, +${eloChangeWinner}) contre ${loserData.name} (${loserData.elo} -> ${newLoserElo}, ${eloChangeLoser}).`;
+                    // Message neutre pour l'utilisateur
+                    const pA_name = players[playerOneId].name;
+                    const pB_name = players[playerTwoId].name;
+                    
+                    const pA_change = playerOneId === winnerId ? eloChangeWinner : eloChangeLoser;
+                    const pB_change = playerTwoId === winnerId ? eloChangeWinner : eloChangeLoser;
+
+                    successMessage = `Match Nul Enregistré! ${pA_name} change de ${pA_change > 0 ? '+' : ''}${pA_change} Elo. ${pB_name} change de ${pB_change > 0 ? '+' : ''}${pB_change} Elo. (Match joué comptabilisé pour les deux)`;
+
                 } else {
                     successMessage = `Victoire! ${winnerData.name} gagne (${winnerData.elo} -> ${newWinnerElo}, +${eloChangeWinner}) contre ${loserData.name} (${loserData.elo} -> ${newLoserElo}, ${eloChangeLoser}).`;
                 }
@@ -895,7 +929,7 @@
             // Populate current players for rename/remove
             playerListContainer.innerHTML = sortedPlayers.map(p => `
                 <li class="flex items-center justify-between py-2 border-b border-gray-100">
-                    <span class="text-gray-700">${p.name} (Elo: ${p.elo}, W: ${p.wins}, L: ${p.losses})</span>
+                    <span class="text-gray-700">${p.name} (Elo: ${p.elo}, W: ${p.wins}, L: ${p.losses}, P: ${p.matches})</span>
                     <div class="space-x-2">
                         <button onclick="
                                 document.getElementById('rename-player-id').value='${p.id}'; 
@@ -903,6 +937,7 @@
                                 document.getElementById('new-elo-score').value='${p.elo}';
                                 document.getElementById('new-wins').value='${p.wins}'; 
                                 document.getElementById('new-losses').value='${p.losses}'; 
+                                document.getElementById('new-matches').value='${p.matches}'; 
                                 toggleRenameModal(true);"
                                 class="text-blue-500 hover:text-blue-700 p-1 rounded-full hover:bg-blue-100 transition duration-150" title="Renommer / Modifier Stats">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
@@ -1094,6 +1129,8 @@
             const newEloValue = document.getElementById('new-elo-score').value.trim();
             const newWinsValue = document.getElementById('new-wins').value.trim();
             const newLossesValue = document.getElementById('new-losses').value.trim();
+            // NOUVEAU: Récupérer la valeur du champ "Matches"
+            const newMatchesValue = document.getElementById('new-matches').value.trim(); 
             const messageElement = document.getElementById('rename-modal-message');
 
             const currentPlayer = players[playerId];
@@ -1154,8 +1191,17 @@
                 logMessage.push(`Défaites: ${currentPlayer.losses} -> ${newLosses}`);
             }
             
-            // 5. Mise à jour des matchs joués (Matches) en fonction des nouvelles Victoires/Défaites
-            const newMatches = newWins + newLosses;
+            // 5. Validation et traitement des Parties Jouées (Matches)
+            let newMatches = parseInt(newMatchesValue, 10);
+            if (isNaN(newMatches) || newMatches < 0) {
+                showUIMessage('rename-modal-message', "Le nombre de parties jouées doit être un nombre positif.", false);
+                return;
+            }
+            // Avertissement si Matches est incohérent, mais mise à jour si demandé.
+            if (newMatches < (newWins + newLosses)) {
+                showUIMessage('rename-modal-message', "Attention: Parties Jouées est inférieur à Victoires + Défaites. Mise à jour effectuée.", false);
+            }
+            
             if (newMatches !== currentPlayer.matches) {
                 updateData.matches = newMatches;
                 logMessage.push(`Parties Jouées: ${currentPlayer.matches} -> ${newMatches}`);
@@ -1304,7 +1350,7 @@
     <!-- Player Management Modal (Pencil Click) - Increased max-width to max-w-4xl -->
     <div id="player-management-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full hidden z-50">
         <div class="relative top-10 mx-auto p-6 border w-11/12 max-w-4xl shadow-2xl rounded-lg bg-white">
-            <h3 class="text-2xl font-extrabold text-primary border-b pb-2 mb-4">Gestion des Joueurs [Image of trophies]</h3>
+            <h3 class="text-2xl font-extrabold text-primary border-b pb-2 mb-4">Gestion des Joueurs</h3>
             <button onclick="togglePlayerManagementModal(false)" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
                 <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
@@ -1334,35 +1380,45 @@
     
     <!-- Rename/Update Player Details Modal -->
     <div id="rename-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full hidden z-50">
-        <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+        <div class="relative top-10 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
             <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Renommer Joueur / Modifier Stats</h3>
             <div class="mt-2 space-y-4">
                 <input type="hidden" id="rename-player-id">
                 
                 <div>
-                    <label for="rename-player-name" class="block text-sm font-medium text-gray-700">Nouveau Nom:</label>
+                    <label for="rename-player-name" class="block text-sm font-medium text-gray-700">Nom:</label>
                     <input type="text" id="rename-player-name" 
                            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
                 </div>
                 
                 <div>
-                    <label for="new-elo-score" class="block text-sm font-medium text-gray-700">Nouvel Elo:</label>
+                    <label for="new-elo-score" class="block text-sm font-medium text-gray-700">Score Elo:</label>
                     <input type="number" id="new-elo-score" placeholder="Ex: 1500"
                            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
                 </div>
                 
-                <!-- Nouveau champ pour les Victoires (Wins) -->
-                <div>
-                    <label for="new-wins" class="block text-sm font-medium text-gray-700">Nouvelles Victoires (W):</label>
-                    <input type="number" id="new-wins" placeholder="Ex: 10" min="0"
-                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                <div class="flex space-x-2">
+                    <!-- Champ pour les Victoires (Wins) -->
+                    <div class="w-1/2">
+                        <label for="new-wins" class="block text-sm font-medium text-gray-700">Victoires (W):</label>
+                        <input type="number" id="new-wins" placeholder="Ex: 10" min="0"
+                               class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                    </div>
+
+                    <!-- Champ pour les Défaites (Losses) -->
+                    <div class="w-1/2">
+                        <label for="new-losses" class="block text-sm font-medium text-gray-700">Défaites (L):</label>
+                        <input type="number" id="new-losses" placeholder="Ex: 5" min="0"
+                               class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                    </div>
                 </div>
 
-                <!-- Nouveau champ pour les Défaites (Losses) -->
+                <!-- NOUVEAU Champ pour les Parties Jouées (Matches) -->
                 <div>
-                    <label for="new-losses" class="block text-sm font-medium text-gray-700">Nouvelles Défaites (L):</label>
-                    <input type="number" id="new-losses" placeholder="Ex: 5" min="0"
+                    <label for="new-matches" class="block text-sm font-medium text-gray-700">Parties Jouées (Total):</label>
+                    <input type="number" id="new-matches" placeholder="Ex: 18" min="0"
                            class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                    <p class="text-xs text-gray-500 mt-1">Doit être supérieur ou égal à W + L. Inclut les matchs nuls.</p>
                 </div>
 
                 <p id="rename-modal-message" class="mt-2 text-sm text-center ui-message"></p>
