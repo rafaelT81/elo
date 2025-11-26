@@ -373,7 +373,7 @@
                 .map(p => {
                     const totalWL = p.wins + p.losses;
                     
-                    // NOUVEAU: Calcul du pourcentage de victoires basé sur Wins / (Wins + Losses)
+                    // Calcul du pourcentage de victoires basé sur Wins / (Wins + Losses)
                     const winRate = totalWL > 0 && p.wins !== undefined
                         ? ((p.wins / totalWL) * 100).toFixed(1)
                         : '0.0';
@@ -651,6 +651,10 @@
             }
             
             let winnerId, loserId, K;
+            let currentWinnerElo, currentLoserElo;
+            
+            const pA = players[playerOneId];
+            const pB = players[playerTwoId];
             
             if (matchMode === 'WIN_LOSS') {
                 // Mode Victoire/Défaite (Win/Loss)
@@ -661,23 +665,54 @@
             } else { // matchMode === 'DRAW'
                 // Mode Match Nul (Draw) - Logique Elo spéciale
                 
-                // 1. Déterminer qui a l'Elo le plus bas (Gagnant conceptuel pour le K-factor spécial)
-                const pA = players[playerOneId];
-                const pB = players[playerTwoId];
+                // NOUVEAU: Vérifier si les Elos sont égaux
+                if (pA.elo === pB.elo) {
+                    // Elos égaux, pas de changement d'Elo, seulement l'incrément de 'matches'
+                    
+                    // Incrémenter les 'matches' pour les deux joueurs
+                    try {
+                        const { runTransaction, doc } = window.firebase;
+                        await runTransaction(db, async (transaction) => {
+                            const pARef = doc(db, getCollectionPath(), pA.id);
+                            const pBRef = doc(db, getCollectionPath(), pB.id);
+                            
+                            const pASnapshot = await transaction.get(pARef);
+                            const pBSnapshot = await transaction.get(pBRef);
+
+                            if (!pASnapshot.exists() || !pBSnapshot.exists()) {
+                                throw "Les documents du joueur n'existent pas ou ont été supprimés.";
+                            }
+                            
+                            // Mise à jour de 'matches' seulement
+                            transaction.set(pARef, { matches: (pASnapshot.data().matches || 0) + 1 }, { merge: true });
+                            transaction.set(pBRef, { matches: (pBSnapshot.data().matches || 0) + 1 }, { merge: true });
+                        });
+                        
+                        // Message de succès sans changement d'Elo
+                        showUIMessage('match-message', `Match Nul Enregistré! Elos égaux, pas de changement de score. Parties Jouées incrémentées.`);
+                        return; // Sortir après l'incrément de 'matches'
+                        
+                    } catch (e) {
+                        console.error("Erreur lors de l'enregistrement du match nul (Transaction échouée): ", e);
+                        showUIMessage('match-message', `Erreur lors de l'enregistrement du match : Vérifiez la console.`, false);
+                        return;
+                    }
+                }
                 
+                // Si Elos différents, continuer avec le calcul Elo normal
+                
+                // 1. Déterminer qui a l'Elo le plus bas (Gagnant conceptuel pour le K-factor spécial)
                 K = K_FACTOR_DRAW;
                 
                 if (pA.elo < pB.elo) {
                     winnerId = pA.id;
                     loserId = pB.id;
-                } else if (pB.elo < pA.elo) {
+                } else { 
+                    // Si pB.elo < pA.elo (la condition d'égalité a été gérée ci-dessus)
                     winnerId = pB.id;
                     loserId = pA.id;
-                } else {
-                    // Elos égaux. On choisit le Joueur A (PlayerOne) comme gagnant conceptuel par défaut.
-                    winnerId = pA.id;
-                    loserId = pB.id;
-                }
+                } 
+                // Note: La règle du K-Factor spécial ne change pas : le joueur le plus faible gagne un peu d'Elo.
             }
             
             // Les données ici sont basées sur le rôle conceptuel (winner gagne points, loser en perd)
@@ -701,11 +736,11 @@
                         throw "Les documents du joueur n'existent pas ou ont été supprimés.";
                     }
 
-                    const currentWinnerElo = winnerSnapshot.data().elo;
-                    const currentLoserElo = loserSnapshot.data().elo;
+                    currentWinnerElo = winnerSnapshot.data().elo;
+                    currentLoserElo = loserSnapshot.data().elo;
                     
                     // 3. Calculer les nouveaux Elos (Score S=1 pour le "gagnant", S=0 pour le "perdant")
-                    // NOTE: La logique Elo standard est conservée, mais avec le K spécial.
+                    // NOTE: La logique Elo standard est conservée, mais avec le K spécial pour le DRAW.
                     newWinnerElo = calculateNewElo(currentWinnerElo, currentLoserElo, 1, K);
                     newLoserElo = calculateNewElo(currentLoserElo, currentWinnerElo, 0, K);
 
@@ -726,7 +761,7 @@
                             losses: (loserSnapshot.data().losses || 0) + 1, 
                             matches: (loserSnapshot.data().matches || 0) + 1 
                         }, { merge: true });
-                    } else { // matchMode === 'DRAW'
+                    } else { // matchMode === 'DRAW' (Elos différents seulement)
                         // Mise à jour pour un Match Nul: Elo change mais SEULEMENT 'matches' augmente
                         
                         // Joueur 1 (Gagnant conceptuel pour l'Elo, mais pas de 'win' officiel)
@@ -740,8 +775,6 @@
                             elo: newLoserElo, 
                             matches: (loserSnapshot.data().matches || 0) + 1 
                         }, { merge: true });
-                        
-                        // NOTE IMPORTANTE: 'wins' et 'losses' ne sont PAS incrémentés ici.
                     }
                 });
                 
@@ -752,13 +785,14 @@
                     const pA_name = players[playerOneId].name;
                     const pB_name = players[playerTwoId].name;
                     
+                    // Utiliser les Elos finaux calculés pour déterminer le changement pour chaque joueur
                     const pA_change = playerOneId === winnerId ? eloChangeWinner : eloChangeLoser;
                     const pB_change = playerTwoId === winnerId ? eloChangeWinner : eloChangeLoser;
 
                     successMessage = `Match Nul Enregistré! ${pA_name} change de ${pA_change > 0 ? '+' : ''}${pA_change} Elo. ${pB_name} change de ${pB_change > 0 ? '+' : ''}${pB_change} Elo. (Match joué comptabilisé pour les deux)`;
 
                 } else {
-                    successMessage = `Victoire! ${winnerData.name} gagne (${winnerData.elo} -> ${newWinnerElo}, +${eloChangeWinner}) contre ${loserData.name} (${loserData.elo} -> ${newLoserElo}, ${eloChangeLoser}).`;
+                    successMessage = `Victoire! ${winnerData.name} gagne (${currentWinnerElo} -> ${newWinnerElo}, +${eloChangeWinner}) contre ${loserData.name} (${currentLoserElo} -> ${newLoserElo}, ${eloChangeLoser}).`;
                 }
                 showUIMessage('match-message', successMessage);
                 
@@ -1199,6 +1233,7 @@
             }
             // Avertissement si Matches est incohérent, mais mise à jour si demandé.
             if (newMatches < (newWins + newLosses)) {
+                // Ce message n'arrête pas la fonction
                 showUIMessage('rename-modal-message', "Attention: Parties Jouées est inférieur à Victoires + Défaites. Mise à jour effectuée.", false);
             }
             
