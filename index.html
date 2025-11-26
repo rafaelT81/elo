@@ -81,10 +81,14 @@
         .text-on-light {
             color: #1f2937; /* Dark gray */
         }
-        /* Rendre la colonne Rank plus large pour la streak */
-        #ranking-list th:first-child, #ranking-list td:first-child {
-            /* width: 150px; -- Commenté pour laisser Tailwind gérer la largeur fluide */
-            min-width: 120px;
+        /* Masquer initialement la ligne de détails (sera affichée via JS) */
+        .detail-row.hidden {
+            display: none;
+        }
+        
+        /* Assurer que le tableau ne dépasse pas sur mobile */
+        .min-w-full {
+             min-width: 100%;
         }
     </style>
     
@@ -100,10 +104,15 @@
         let auth;
         let userId = 'unknown';
 
+        // State pour l'affichage des détails mobiles (pour implémenter l'accordion)
+        let openDetailRowId = null; // Stocke l'ID du joueur dont la ligne de détail est ouverte
+        
         // Constants
         const INITIAL_ELO = 300; // Elo initial pour les nouveaux joueurs
         const K_FACTOR = 96; // Facteur K pour un classement 3x plus rapide
         const ADMIN_PASSWORD = "techno"; // Mot de passe admin changé pour "techno"
+        // --- NOUVELLE CONSTANTE : URL de l'Application Google Apps Script (MISE À JOUR) ---
+        const GOOGLE_SHEET_API_URL = "https://script.google.com/macros/s/AKfycbwDbADVEkWm_2sdAZa4KMDeJIM-hmYqCkLRWdsXNIGU6wq4c2PlM8WdOKNI0GAsUy11/exec"; // ⚠️ URL DE VOTRE DÉPLOIEMENT GAS ⚠️
 
         // Codes de couleur des médailles
         const MEDAL_COLORS = {
@@ -135,8 +144,8 @@
             projectId: "classement-elo",
             storageBucket: "classement-elo.firebasestorage.app",
             messagingSenderId: "240751765604",
-            appId: "1:240751765604:web:bfc2d16d768cede61b9771",
-            measurementId: "G-FREKR0HF4H"
+            appId: "1:240751765604:web:bfc2d16d768cede61b99971",
+            measurementId: "G-FREKR0HFH"
         };
         const initialAuthToken = null; // Pas de jeton injecté dans un déploiement GitHub
 
@@ -348,8 +357,50 @@
                 }));
         }
 
+        /**
+         * Toggles the visibility of the detail row for a given player ID, 
+         * ensuring only one row is open at a time (accordion behavior).
+         * @param {string} playerId The ID of the player whose details should be toggled.
+         */
+        window.toggleDetails = function(playerId) {
+            const detailRow = document.getElementById(`detail-row-${playerId}`);
+            const button = document.getElementById(`detail-button-${playerId}`);
+            
+            if (!detailRow || !button) return;
 
-        // --- UI Rendering (Updated for Admin Visibility Fix) ---
+            // Vrai si on est en train de fermer la ligne actuellement ouverte
+            const isClosingCurrent = openDetailRowId === playerId;
+
+            // 1. Fermer la ligne précédemment ouverte (si elle existe et n'est pas la ligne actuelle)
+            if (openDetailRowId && openDetailRowId !== playerId) {
+                const prevDetailRow = document.getElementById(`detail-row-${openDetailRowId}`);
+                const prevButton = document.getElementById(`detail-button-${openDetailRowId}`);
+                
+                if (prevDetailRow) {
+                    prevDetailRow.classList.add('hidden');
+                }
+                if (prevButton) {
+                    // Remettre la flèche vers le bas (état fermé)
+                    prevButton.querySelector('svg').innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>';
+                }
+            }
+
+            // 2. Ouvrir ou Fermer la ligne cliquée
+            if (isClosingCurrent) {
+                // Fermeture
+                detailRow.classList.add('hidden');
+                button.querySelector('svg').innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>';
+                openDetailRowId = null;
+            } else {
+                // Ouverture
+                detailRow.classList.remove('hidden');
+                button.querySelector('svg').innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path>';
+                openDetailRowId = playerId;
+            }
+        }
+
+
+        // --- UI Rendering (Updated for Mobile Details Row) ---
 
         /**
          * Renders the main ranking table.
@@ -367,20 +418,29 @@
             }
 
             rankingList.innerHTML = `
-                <div class="overflow-x-auto mb-6">
+                <!-- MODIFIÉ: Retrait de overflow-x-auto pour forcer l'ajustement -->
+                <div class="mb-6"> 
                     <table class="min-w-full divide-y divide-gray-200 shadow-xl rounded-lg overflow-hidden">
                         <thead class="bg-primary/90 text-white">
                             <tr>
-                                <th class="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider"># Rank / Streak</th>
-                                <th class="px-6 py-3 text-left text-xs font-bold uppercase tracking-wider">Nom du Joueur</th>
-                                <th class="px-6 py-3 text-right text-xs font-bold uppercase tracking-wider">Elo</th>
-                                <!-- Colonnes numériques alignées à droite pour une meilleure lisibilité -->
+                                <!-- MODIFIÉ: Changé le titre de la colonne et padding à px-2 -->
+                                <th class="px-2 sm:px-6 py-3 text-left text-xs font-bold uppercase tracking-wider"># Rank</th>
+                                <!-- MODIFIÉ: padding à px-2 -->
+                                <th class="px-2 sm:px-6 py-3 text-left text-xs font-bold uppercase tracking-wider">Nom du Joueur</th>
+                                <!-- MODIFIÉ: padding à px-2 -->
+                                <th class="px-2 sm:px-6 py-3 text-right text-xs font-bold uppercase tracking-wider">Elo</th>
+                                <!-- Colonnes numériques alignées à droite pour une meilleure lisibilité (Masqué sur mobile) -->
                                 <th class="px-6 py-3 text-right text-xs font-bold uppercase tracking-wider hidden sm:table-cell">Win %</th>
                                 <th class="px-6 py-3 text-right text-xs font-bold uppercase tracking-wider hidden sm:table-cell">Parties Jouées</th>
+                                <!-- MODIFIÉ: padding à px-2 -->
+                                <th class="px-2 py-3 text-center text-xs font-bold uppercase tracking-wider sm:hidden">...</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-100">
                             ${sortedPlayers.map(p => {
+                                // Déterminer si cette ligne de détails DOIT être ouverte après le rendu (basé sur l'état JS)
+                                const isDetailOpen = openDetailRowId === p.id;
+                                
                                 let rowColor = MEDAL_COLORS[p.rank] || '';
                                 let textColorClass = MEDAL_TEXT_COLOR[p.rank] || 'text-gray-900';
                                 
@@ -388,25 +448,63 @@
                                 const rowClass = rowColor ? `shadow-inner transform hover:scale-[1.01] transition duration-150 ease-in-out` : `bg-white hover:bg-indigo-50 transition duration-150 ease-in-out`;
                                 const rowStyle = rowColor ? `style="background-color: ${rowColor};"` : '';
                                 
-                                // Calculate days in top 1 if applicable
-                                let top1DaysDisplay = '';
-                                if (p.rank === 1 && p.top1Since) {
-                                    // Utiliser la propriété pré-calculée top1Days
-                                    top1DaysDisplay = `<span class="text-xs font-normal ml-2 opacity-80 whitespace-nowrap"> (Depuis ${p.top1Days} jours)</span>`;
-                                }
+                                // Suppression de top1DaysDisplay ici pour gagner de l'espace horizontal sur mobile
 
+                                // Génération des deux lignes (principale + détails)
                                 return `
+                                    <!-- Ligne Principale -->
                                     <tr class="${rowClass}" ${rowStyle}>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium ${textColorClass}">
+                                        <!-- MODIFIÉ: px-2 sm:px-6, et retrait de l'affichage de la streak -->
+                                        <td class="px-2 sm:px-6 py-4 whitespace-nowrap text-sm font-medium ${textColorClass}">
                                             <span class="font-bold">${p.rank === 1 ? '🥇' : p.rank === 2 ? '🥈' : p.rank === 3 ? '🥉' : p.rank}</span>
-                                            ${top1DaysDisplay}
                                         </td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm ${textColorClass}">${p.name}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-bold ${textColorClass}">${p.elo}</td>
-                                        <!-- Alignement à droite (text-right) pour toutes les données numériques -->
+                                        <!-- MODIFIÉ: px-2 sm:px-6 -->
+                                        <td class="px-2 sm:px-6 py-4 whitespace-nowrap text-sm ${textColorClass}">${p.name}</td>
+                                        <!-- MODIFIÉ: px-2 sm:px-6 -->
+                                        <td class="px-2 sm:px-6 py-4 whitespace-nowrap text-sm text-right font-bold ${textColorClass}">${p.elo}</td>
+                                        <!-- Colonnes masquées sur mobile -->
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-medium ${p.winRate >= 50 ? 'text-secondary' : 'text-yellow-800'} hidden sm:table-cell">${p.winRate}%</td>
-                                        <!-- Alignement à droite (text-right) pour toutes les données numériques -->
                                         <td class="px-6 py-4 whitespace-nowrap text-sm text-right ${textColorClass} hidden sm:table-cell">${p.matches}</td>
+                                        
+                                        <!-- Bouton Détails pour Mobile (MODIFIÉ: px-2) -->
+                                        <td class="px-2 py-4 text-center sm:hidden">
+                                            <button id="detail-button-${p.id}" onclick="toggleDetails('${p.id}')" 
+                                                    class="p-1 rounded-full text-primary hover:bg-primary/10 transition duration-150">
+                                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                                    <!-- Icone: Flèche vers le bas si fermé, Flèche vers le haut si ouvert -->
+                                                    ${isDetailOpen 
+                                                        ? '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path>'
+                                                        : '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>'}
+                                                </svg>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    
+                                    <!-- Ligne de Détails (Cachée par défaut sur mobile, Masquée sur desktop) -->
+                                    <tr id="detail-row-${p.id}" class="detail-row ${isDetailOpen ? '' : 'hidden'} sm:hidden">
+                                        <td colspan="4" class="p-4 bg-gray-50 border-t border-gray-200">
+                                            <div class="text-xs space-y-1 ${textColorClass}">
+                                                <!-- AJOUTÉ: Affichage de la série Top 1 ici -->
+                                                ${p.rank === 1 && p.top1Since ? `
+                                                    <div class="flex justify-between font-semibold text-primary">
+                                                        <span>Série Top 1 en cours :</span>
+                                                        <span>${p.top1Days} jours</span>
+                                                    </div>
+                                                ` : ''}
+                                                <div class="flex justify-between font-semibold">
+                                                    <span>Victoires / Défaites :</span>
+                                                    <span>${p.wins} W / ${p.losses} L</span>
+                                                </div>
+                                                <div class="flex justify-between font-semibold">
+                                                    <span>Parties Jouées :</span>
+                                                    <span>${p.matches}</span>
+                                                </div>
+                                                <div class="flex justify-between font-semibold">
+                                                    <span>Taux de Victoire :</span>
+                                                    <span class="${p.winRate >= 50 ? 'text-secondary' : 'text-yellow-800'}">${p.winRate}%</span>
+                                                </div>
+                                            </div>
+                                        </td>
                                     </tr>
                                 `;
                             }).join('')}
@@ -586,7 +684,11 @@
 
             // Générer les options, mais avec une option par défaut vide/désactivée
             const defaultOption = '<option value="" disabled selected>-- Sélectionner --</option>';
-            const playerOptions = sortedPlayers.map(p => `<option value="${p.id}">${p.name} (${p.elo})</option>`).join('');
+            // --- MODIFICATION ICI : Afficher Elo, Parties Jouées et Taux de Victoire ---
+            const playerOptions = sortedPlayers.map(p => 
+                `<option value="${p.id}">${p.name} (Elo: ${p.elo}, Parties: ${p.matches}, Win Rate: ${p.winRate}%)</option>`
+            ).join('');
+            // ----------------------------------------------------------------------------
             const optionsHtml = defaultOption + playerOptions;
 
             matchRecorder.innerHTML = `
@@ -924,6 +1026,39 @@
         }
 
         /**
+         * Envoie les données de match à l'Application Google Apps Script (GAS) pour enregistrement dans Google Sheet.
+         * @param {object} matchData Les données du match à enregistrer.
+         */
+        async function sendMatchDataToSheet(matchData) {
+            if (GOOGLE_SHEET_API_URL === "https://script.google.com/macros/s/AKfycbyiTnsvTDDlVJbhSVKDu-iQjY91of9ToYe0lTI6PB7V0zzWdHYVDM2MvGABlwAYcir6/exec" || !GOOGLE_SHEET_API_URL) {
+                console.warn("Historique Sheets ignoré: GOOGLE_SHEET_API_URL n'est pas configurée.");
+                return;
+            }
+
+            try {
+                const response = await fetch(GOOGLE_SHEET_API_URL, {
+                    method: 'POST',
+                    mode: 'cors', // Important pour les appels cross-origin
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(matchData)
+                });
+
+                const result = await response.json();
+                
+                if (result.result === 'success') {
+                    console.log("Historique Sheet: Succès de l'enregistrement.", result.message);
+                } else {
+                    console.error("Historique Sheet: Erreur lors de l'enregistrement.", result.message);
+                }
+            } catch (error) {
+                console.error("Historique Sheet: Échec de la requête réseau vers Google Sheets API.", error);
+            }
+        }
+
+
+        /**
          * Handles the recording of a match result and updates player Elo using a transaction.
          */
         window.recordMatch = async function() {
@@ -949,10 +1084,16 @@
                 showUIMessage('match-message', "Erreur: Joueur introuvable.", false);
                 return;
             }
+            
+            // Variables pour stocker les Elos avant/après
+            let eloWinnerBefore = winnerData.elo;
+            let eloLoserBefore = loserData.elo;
+            let eloWinnerAfter;
+            let eloLoserAfter;
+            let eloChangeWinner, eloChangeLoser;
 
             try {
                 const { runTransaction, doc } = window.firebase;
-                let eloChangeWinner, eloChangeLoser;
 
                 await runTransaction(db, async (transaction) => {
                     // 1. Lire les documents les plus récents dans la transaction
@@ -966,14 +1107,17 @@
                         throw "Les documents du joueur n'existent pas ou ont été supprimés.";
                     }
 
-                    const currentWinnerElo = winnerSnapshot.data().elo;
-                    const currentLoserElo = loserSnapshot.data().elo;
+                    // On utilise les valeurs lues dans la transaction, au cas où l'état global 'players' ne serait pas le plus à jour.
+                    eloWinnerBefore = winnerSnapshot.data().elo;
+                    eloLoserBefore = loserSnapshot.data().elo;
                     
                     // 2. Calculer les nouveaux Elos
-                    const { newRa, newRb } = calculateNewElos(currentWinnerElo, currentLoserElo);
+                    const { newRa, newRb } = calculateNewElos(eloWinnerBefore, eloLoserBefore);
 
-                    eloChangeWinner = newRa - currentWinnerElo;
-                    eloChangeLoser = newRb - currentLoserElo;
+                    eloWinnerAfter = newRa;
+                    eloLoserAfter = newRb;
+                    eloChangeWinner = newRa - eloWinnerBefore;
+                    eloChangeLoser = newRb - eloLoserBefore;
 
                     // 3. Mettre à jour les données du gagnant
                     transaction.set(winnerRef, { 
@@ -990,7 +1134,19 @@
                     }, { merge: true });
                 });
                 
-                // Si la transaction réussit, afficher le message
+                // Si la transaction réussit, nous avons les Elos Après.
+                // 5. Envoi des données à Google Sheets (cette partie est asynchrone et n'a pas besoin de bloquer l'UI)
+                const matchData = {
+                    winnerName: winnerData.name,
+                    loserName: loserData.name,
+                    eloWinnerBefore: eloWinnerBefore,
+                    eloLoserBefore: eloLoserBefore,
+                    eloWinnerAfter: eloWinnerAfter,
+                    eloLoserAfter: eloLoserAfter,
+                };
+                sendMatchDataToSheet(matchData); // Appel de la fonction d'envoi
+
+                // Afficher le message de succès UI
                 showUIMessage('match-message', `Match enregistré! ${winnerData.name} gagne (+${eloChangeWinner}) contre ${loserData.name} (${eloChangeLoser}).`);
 
             } catch (e) {
