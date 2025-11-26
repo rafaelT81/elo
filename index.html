@@ -111,8 +111,9 @@
         const INITIAL_ELO = 300; // Elo initial pour les nouveaux joueurs
         const K_FACTOR = 96; // Facteur K pour un classement 3x plus rapide
         const ADMIN_PASSWORD = "techno"; // Mot de passe admin changé pour "techno"
-        // --- NOUVELLE CONSTANTE : URL de l'Application Google Apps Script (MISE À JOUR) ---
-        const GOOGLE_SHEET_API_URL = "https://script.google.com/macros/s/AKfycbwDbADVEkWm_2sdAZa4KMDeJIM-hmYqCkLRWdsXNIGU6wq4c2PlM8WdOKNI0GAsUy11/exec"; // ⚠️ URL DE VOTRE DÉPLOIEMENT GAS ⚠️
+        // --- MODIFICATION: URL de l'application Google Apps Script pour l'historique ---
+        const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbz9V5JR0lI6-VQXbht0JVdyTi1aa6eHQtCof193WNk8O1A3Q-Nj5K4SU2ypVI9VoM7e/exec"; // REMPLACER CECI
+        // ---------------------------------------------------------------------------------
 
         // Codes de couleur des médailles
         const MEDAL_COLORS = {
@@ -684,11 +685,13 @@
 
             // Générer les options, mais avec une option par défaut vide/désactivée
             const defaultOption = '<option value="" disabled selected>-- Sélectionner --</option>';
-            // --- MODIFICATION ICI : Afficher Elo, Parties Jouées et Taux de Victoire ---
+            
+            // --- MODIFICATION ICI : Afficher SEULEMENT le nom du joueur ---
             const playerOptions = sortedPlayers.map(p => 
-                `<option value="${p.id}">${p.name} (Elo: ${p.elo}, Parties: ${p.matches}, Win Rate: ${p.winRate}%)</option>`
+                `<option value="${p.id}">${p.name}</option>`
             ).join('');
-            // ----------------------------------------------------------------------------
+            // ------------------------------------------------------------
+            
             const optionsHtml = defaultOption + playerOptions;
 
             matchRecorder.innerHTML = `
@@ -1024,36 +1027,35 @@
                 showUIMessage('rename-modal-message', "Erreur: Échec de la modification du joueur.", false);
             }
         }
-
+        
         /**
-         * Envoie les données de match à l'Application Google Apps Script (GAS) pour enregistrement dans Google Sheet.
-         * @param {object} matchData Les données du match à enregistrer.
+         * Enregistre le match dans la feuille Google Sheets via Apps Script.
+         * @param {object} matchData - Les données de match à envoyer.
          */
-        async function sendMatchDataToSheet(matchData) {
-            if (GOOGLE_SHEET_API_URL === "https://script.google.com/macros/s/AKfycbyiTnsvTDDlVJbhSVKDu-iQjY91of9ToYe0lTI6PB7V0zzWdHYVDM2MvGABlwAYcir6/exec" || !GOOGLE_SHEET_API_URL) {
-                console.warn("Historique Sheets ignoré: GOOGLE_SHEET_API_URL n'est pas configurée.");
+        async function logMatchToSheet(matchData) {
+            if (!GAS_WEB_APP_URL || GAS_WEB_APP_URL === "GAS_WEB_APP_URL_PLACEHOLDER") {
+                console.warn("URL de l'application GAS non configurée. Ignorer l'enregistrement dans le Sheet.");
                 return;
             }
-
+            
             try {
-                const response = await fetch(GOOGLE_SHEET_API_URL, {
+                const response = await fetch(GAS_WEB_APP_URL, {
                     method: 'POST',
-                    mode: 'cors', // Important pour les appels cross-origin
+                    mode: 'no-cors', // Requis pour les appels GAS (simplifie la gestion CORS)
                     headers: {
                         'Content-Type': 'application/json',
                     },
+                    // Le corps doit être sérialisé en chaîne JSON
                     body: JSON.stringify(matchData)
                 });
 
-                const result = await response.json();
+                // NOTE: Les réponses 'no-cors' sont opaques, donc on ne peut pas lire response.json() ou vérifier response.ok
+                // On log simplement que la requête a été envoyée. Pour un debug réel, on devrait vérifier la feuille.
+                console.log("Requête d'enregistrement de match Apps Script envoyée. Vérifiez Google Sheet.");
                 
-                if (result.result === 'success') {
-                    console.log("Historique Sheet: Succès de l'enregistrement.", result.message);
-                } else {
-                    console.error("Historique Sheet: Erreur lors de l'enregistrement.", result.message);
-                }
             } catch (error) {
-                console.error("Historique Sheet: Échec de la requête réseau vers Google Sheets API.", error);
+                console.error("Erreur lors de l'envoi des données à Google Sheets:", error);
+                // On n'affiche pas de message d'erreur à l'utilisateur car cela ne bloque pas l'application
             }
         }
 
@@ -1084,16 +1086,11 @@
                 showUIMessage('match-message', "Erreur: Joueur introuvable.", false);
                 return;
             }
-            
-            // Variables pour stocker les Elos avant/après
-            let eloWinnerBefore = winnerData.elo;
-            let eloLoserBefore = loserData.elo;
-            let eloWinnerAfter;
-            let eloLoserAfter;
-            let eloChangeWinner, eloChangeLoser;
 
             try {
                 const { runTransaction, doc } = window.firebase;
+                let eloChangeWinner, eloChangeLoser;
+                let newWinnerElo, newLoserElo;
 
                 await runTransaction(db, async (transaction) => {
                     // 1. Lire les documents les plus récents dans la transaction
@@ -1107,47 +1104,47 @@
                         throw "Les documents du joueur n'existent pas ou ont été supprimés.";
                     }
 
-                    // On utilise les valeurs lues dans la transaction, au cas où l'état global 'players' ne serait pas le plus à jour.
-                    eloWinnerBefore = winnerSnapshot.data().elo;
-                    eloLoserBefore = loserSnapshot.data().elo;
+                    const currentWinnerElo = winnerSnapshot.data().elo;
+                    const currentLoserElo = loserSnapshot.data().elo;
                     
                     // 2. Calculer les nouveaux Elos
-                    const { newRa, newRb } = calculateNewElos(eloWinnerBefore, eloLoserBefore);
+                    const calculatedElos = calculateNewElos(currentWinnerElo, currentLoserElo);
+                    newWinnerElo = calculatedElos.newRa;
+                    newLoserElo = calculatedElos.newRb;
 
-                    eloWinnerAfter = newRa;
-                    eloLoserAfter = newRb;
-                    eloChangeWinner = newRa - eloWinnerBefore;
-                    eloChangeLoser = newRb - eloLoserBefore;
+                    eloChangeWinner = newWinnerElo - currentWinnerElo;
+                    eloChangeLoser = newLoserElo - currentLoserElo;
 
                     // 3. Mettre à jour les données du gagnant
                     transaction.set(winnerRef, { 
-                        elo: newRa, 
+                        elo: newWinnerElo, 
                         wins: (winnerSnapshot.data().wins || 0) + 1, 
                         matches: (winnerSnapshot.data().matches || 0) + 1 
                     }, { merge: true });
                     
                     // 4. Mettre à jour les données du perdant
                     transaction.set(loserRef, { 
-                        elo: newRb, 
+                        elo: newLoserElo, 
                         losses: (loserSnapshot.data().losses || 0) + 1, 
                         matches: (loserSnapshot.data().matches || 0) + 1 
                     }, { merge: true });
                 });
                 
-                // Si la transaction réussit, nous avons les Elos Après.
-                // 5. Envoi des données à Google Sheets (cette partie est asynchrone et n'a pas besoin de bloquer l'UI)
-                const matchData = {
+                // Si la transaction réussit, afficher le message
+                showUIMessage('match-message', `Match enregistré! ${winnerData.name} gagne (+${eloChangeWinner}) contre ${loserData.name} (${eloChangeLoser}).`);
+                
+                // --- AJOUT: Enregistrer l'historique dans Google Sheet ---
+                logMatchToSheet({
+                    winnerId: winnerId,
+                    loserId: loserId,
                     winnerName: winnerData.name,
                     loserName: loserData.name,
-                    eloWinnerBefore: eloWinnerBefore,
-                    eloLoserBefore: eloLoserBefore,
-                    eloWinnerAfter: eloWinnerAfter,
-                    eloLoserAfter: eloLoserAfter,
-                };
-                sendMatchDataToSheet(matchData); // Appel de la fonction d'envoi
-
-                // Afficher le message de succès UI
-                showUIMessage('match-message', `Match enregistré! ${winnerData.name} gagne (+${eloChangeWinner}) contre ${loserData.name} (${eloChangeLoser}).`);
+                    newWinnerElo: newWinnerElo,
+                    newLoserElo: newLoserElo,
+                    eloChangeWinner: eloChangeWinner,
+                    eloChangeLoser: eloChangeLoser
+                });
+                // --------------------------------------------------------
 
             } catch (e) {
                 console.error("Erreur lors de l'enregistrement du match (Transaction échouée): ", e);
@@ -1255,7 +1252,7 @@
     <!-- Player Management Modal (Pencil Click) - Increased max-width to max-w-4xl -->
     <div id="player-management-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full hidden z-50">
         <div class="relative top-10 mx-auto p-6 border w-11/12 max-w-4xl shadow-2xl rounded-lg bg-white">
-            <h3 class="text-2xl font-extrabold text-primary border-b pb-2 mb-4">Gestion des Joueurs</h3>
+            <h3 class="text-2xl font-extrabold text-primary border-b pb-2 mb-4">Gestion des Joueurs [Image of game icon]</h3>
             <button onclick="togglePlayerManagementModal(false)" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
                 <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
