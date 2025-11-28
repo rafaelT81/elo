@@ -498,7 +498,7 @@
                                     <!-- Ligne de Détails -->
                                     <tr id="detail-row-${p.id}" class="detail-row ${isDetailOpen ? '' : 'hidden'} sm:hidden">
                                         <td colspan="4" class="p-4 bg-gray-50 border-t border-gray-200">
-                                            <div class="text-xs space-y-1 ${textColorClass}">
+                                            <div class="text-xs space-y-1 text-gray-700">
                                                 ${p.rank === 1 && p.top1Since ? `
                                                     <div class="flex justify-between font-semibold text-primary">
                                                         <span>Série Top 1 en cours :</span>
@@ -739,42 +739,10 @@
                     currentWinnerElo = winnerSnapshot.data().elo;
                     currentLoserElo = loserSnapshot.data().elo;
                     
-                    // Variables de calcul temporaires
-                    let calcWinnerElo = currentWinnerElo;
-                    let calcLoserElo = currentLoserElo;
-
-                    // --- MODIFICATION : Ajout fixe avant la formule ---
-                    if (matchMode === 'WIN_LOSS') {
-                     calcWinnerElo += 1;
-                     calcLoserElo -= 1;
-                    }
-
-                    // 🔒 RÈGLE ANTI-ELO < 1
-                    // Si le perdant est déjà à 1 Elo, aucune modification de points ne doit être appliquée.
-                    if (currentLoserElo <= 1) {
-
-                        // Aucun changement d’Elo pour les deux joueurs
-                        newWinnerElo = currentWinnerElo;
-                        newLoserElo  = currentLoserElo;
-
-                        // Juste +1 match joué pour chacun
-                        transaction.set(winnerRef, { 
-                        matches: (winnerSnapshot.data().matches || 0) + 1 
-                        }, { merge: true });
-
-                        transaction.set(loserRef, { 
-                        matches: (loserSnapshot.data().matches || 0) + 1 
-                        }, { merge: true });
- 
-                        // On quitte ici la transaction
-                        return;
-                    }
-                    // --------------------------------------------------
-
                     // 3. Calculer les nouveaux Elos (Score S=1 pour le "gagnant", S=0 pour le "perdant")
                     // NOTE: La logique Elo standard est conservée, mais avec le K spécial pour le DRAW.
-                    newWinnerElo = calculateNewElo(calcWinnerElo, calcLoserElo, 1, K);
-                    newLoserElo = calculateNewElo(calcLoserElo, calcWinnerElo, 0, K);
+                    newWinnerElo = calculateNewElo(currentWinnerElo, currentLoserElo, 1, K);
+                    newLoserElo = calculateNewElo(currentLoserElo, currentWinnerElo, 0, K);
 
                     eloChangeWinner = newWinnerElo - currentWinnerElo;
                     eloChangeLoser = newLoserElo - currentLoserElo;
@@ -1519,4 +1487,3 @@
     
 </body>
 </html>
-
