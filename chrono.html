@@ -151,7 +151,7 @@
             }
         }
 
-        /* Styles spécifiques pour le joueur 1 */
+        /* Styles spécifiques pour le joueur 1 (Le "carré bleu" / ardoise sombre) */
         #player1-zone {
             background-color: #1e293b; /* Slate-800 */
             color: white;
@@ -163,7 +163,7 @@
             }
         }
 
-        /* Styles spécifiques pour le joueur 2 */
+        /* Styles spécifiques pour le joueur 2 (Ardoise clair) */
         #player2-zone {
             background-color: #f1f5f9; /* Slate-100 */
             color: #1e293b; /* Slate-800 */
@@ -213,18 +213,21 @@
     </div>
 
     <!-- Contrôles Centraux -->
-    <!-- J'ai retiré 'flex items-center justify-center' pour pouvoir positionner le main-button en absolu sur la ligne de séparation -->
+    <!-- Conteneur couvrant tout l'écran pour positionner les boutons de manière absolue -->
     <div id="controls" class="absolute inset-0 pointer-events-none">
         
         <!-- Bouton Démarrer/Pause/Gagnant -->
+        <!-- Positionnement Centré sur la ligne de démarcation : top-1/2, left-1/2, et transformation pour ajuster -->
+        <!-- Couleur ajustée pour une meilleure visibilité (Jaune) -->
         <button id="main-button"
                 onclick="event.stopPropagation(); startStop()"
-                class="pointer-events-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-full shadow-lg transition duration-200 text-xl md:text-xl z-20 hidden
+                class="pointer-events-auto bg-yellow-500 hover:bg-yellow-600 text-gray-900 font-bold py-3 px-6 rounded-full shadow-lg transition duration-200 text-xl md:text-xl z-20 hidden
                        absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
             Pause
         </button>
 
         <!-- Bouton de Classement Elo -->
+        <!-- Reste dans le coin supérieur droit -->
         <button id="elo-button"
                 onclick="window.location.href='index.html'"
                 class="pointer-events-auto absolute top-4 right-4 bg-gray-300 hover:bg-gray-400 text-gray-800 p-4 rounded-full shadow-lg transition duration-200 z-20 hidden">
@@ -235,6 +238,7 @@
         </button>
 
         <!-- Bouton de Réglages (Engrenage) -->
+        <!-- Reste dans le coin inférieur gauche (pour mobile, il est au-dessus du P2, pour desktop, dans le P2) -->
         <button id="settings-button"
                 onclick="event.stopPropagation(); toggleSettings(true)"
                 class="pointer-events-auto absolute bottom-4 left-4 bg-gray-300 hover:bg-gray-400 text-white p-4 rounded-full shadow-lg transition duration-200 z-20 hidden">
@@ -246,6 +250,7 @@
         </button>
 
         <!-- Bouton de Réinitialisation -->
+        <!-- Reste dans le coin inférieur droit (pour mobile, il est au-dessus du P2, pour desktop, dans le P2) -->
         <button id="reset-button"
                 onclick="event.stopPropagation(); resetGame()"
                 class="pointer-events-auto absolute bottom-4 right-4 bg-gray-300 hover:bg-gray-400 text-gray-800 text-base font-semibold py-3 px-4 rounded-lg shadow transition duration-200 z-20 hidden">
@@ -564,7 +569,7 @@
 
             // Mise à jour du bouton central
             mainButtonEl.textContent = `Fin de Partie`; 
-            mainButtonEl.classList.remove('bg-indigo-600', 'hover:bg-indigo-700', 'bg-green-600', 'hover:bg-green-700', 'bg-gray-600', 'hover:bg-gray-700');
+            mainButtonEl.classList.remove('bg-yellow-500', 'hover:bg-yellow-600', 'bg-green-600', 'hover:bg-green-700', 'bg-gray-600', 'hover:bg-gray-700');
             mainButtonEl.classList.add('bg-gray-600', 'hover:bg-gray-700'); 
             
             // Met à jour l'affichage et l'indicateur pour masquer l'indicateur
@@ -586,7 +591,7 @@
 
             // Rétablit l'interface
             mainButtonEl.classList.remove('bg-gray-600', 'hover:bg-gray-700', 'bg-green-600');
-            mainButtonEl.classList.add('bg-indigo-600');
+            mainButtonEl.classList.add('bg-yellow-500');
             
             updateVisuals();
         }
@@ -616,13 +621,13 @@
             } else if (isTicking) {
                 mainButtonEl.textContent = 'Pause';
                 // Bouton Pause (Gris)
-                mainButtonEl.classList.remove('bg-indigo-600', 'hover:bg-indigo-700', 'bg-green-600', 'hover:bg-green-700');
+                mainButtonEl.classList.remove('bg-yellow-500', 'hover:bg-yellow-600', 'bg-green-600', 'hover:bg-green-700');
                 mainButtonEl.classList.add('bg-gray-600', 'hover:bg-gray-700');
             } else if (isPaused) {
                 mainButtonEl.textContent = 'Reprendre';
-                // Bouton Reprendre (Indigo)
+                // Bouton Reprendre (Jaune)
                 mainButtonEl.classList.remove('bg-gray-600', 'hover:bg-gray-700', 'bg-green-600', 'hover:bg-green-700');
-                mainButtonEl.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
+                mainButtonEl.classList.add('bg-yellow-500', 'hover:bg-yellow-600');
             }
 
             // Contrôle de la visibilité des boutons de contrôle (Réglages et ELO)
@@ -753,4 +758,3 @@
     </script>
 </body>
 </html>
-
