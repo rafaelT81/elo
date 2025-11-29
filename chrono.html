@@ -151,7 +151,7 @@
             }
         }
 
-        /* Styles spécifiques pour le joueur 1 (Le "carré bleu" / ardoise sombre) */
+        /* Styles spécifiques pour le joueur 1 */
         #player1-zone {
             background-color: #1e293b; /* Slate-800 */
             color: white;
@@ -163,7 +163,7 @@
             }
         }
 
-        /* Styles spécifiques pour le joueur 2 (Ardoise clair) */
+        /* Styles spécifiques pour le joueur 2 */
         #player2-zone {
             background-color: #f1f5f9; /* Slate-100 */
             color: #1e293b; /* Slate-800 */
@@ -212,51 +212,44 @@
         </div>
     </div>
 
-    <!-- Contrôles Centraux -->
-    <!-- Conteneur couvrant tout l'écran pour positionner les boutons de manière absolue -->
-    <div id="controls" class="absolute inset-0 pointer-events-none">
-        
-        <!-- Bouton Démarrer/Pause/Gagnant -->
-        <!-- Positionnement Centré sur la ligne de démarcation : top-1/2, left-1/2, et transformation pour ajuster -->
-        <!-- Couleur ajustée pour une meilleure visibilité (Jaune) -->
-        <button id="main-button"
-                onclick="event.stopPropagation(); startStop()"
-                class="pointer-events-auto bg-yellow-500 hover:bg-yellow-600 text-gray-900 font-bold py-3 px-6 rounded-full shadow-lg transition duration-200 text-xl md:text-xl z-20 hidden
-                       absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-            Pause
-        </button>
+    <!-- Bouton Démarrer/Pause/Gagnant : Centré par position fixe et translation -->
+    <button id="main-button"
+            onclick="event.stopPropagation(); startStop()"
+            class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 
+                   pointer-events-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-full shadow-lg transition duration-200 text-xl md:text-xl z-20 hidden">
+        Pause
+    </button>
+    
+    <!-- Boutons de Contrôle dans les Coins (maintenant directement dans le body) -->
 
-        <!-- Bouton de Classement Elo -->
-        <!-- Reste dans le coin supérieur droit -->
-        <button id="elo-button"
-                onclick="window.location.href='index.html'"
-                class="pointer-events-auto absolute top-4 right-4 bg-gray-300 hover:bg-gray-400 text-gray-800 p-4 rounded-full shadow-lg transition duration-200 z-20 hidden">
-            <!-- Icône de flèche droite SVG -->
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6">
-                <path d="M5 12h14M12 5l7 7-7 7"/>
-            </svg>
-        </button>
+    <!-- Bouton de Classement Elo -->
+    <button id="elo-button"
+            onclick="window.location.href='index.html'"
+            class="pointer-events-auto absolute top-4 right-4 bg-gray-300 hover:bg-gray-400 text-gray-800 p-4 rounded-full shadow-lg transition duration-200 z-20">
+        <!-- Icône de flèche droite SVG -->
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6">
+            <path d="M5 12h14M12 5l7 7-7 7"/>
+        </svg>
+    </button>
 
-        <!-- Bouton de Réglages (Engrenage) -->
-        <!-- Reste dans le coin inférieur gauche (pour mobile, il est au-dessus du P2, pour desktop, dans le P2) -->
-        <button id="settings-button"
-                onclick="event.stopPropagation(); toggleSettings(true)"
-                class="pointer-events-auto absolute bottom-4 left-4 bg-gray-300 hover:bg-gray-400 text-white p-4 rounded-full shadow-lg transition duration-200 z-20 hidden">
-            <!-- Icône d'engrenage SVG (Couleur du texte des boutons, BLANC) -->
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6 text-gray-800">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
-        </button>
+    <!-- Bouton de Réglages (Engrenage) -->
+    <button id="settings-button"
+            onclick="event.stopPropagation(); toggleSettings(true)"
+            class="pointer-events-auto absolute bottom-4 left-4 bg-gray-300 hover:bg-gray-400 text-white p-4 rounded-full shadow-lg transition duration-200 z-20">
+        <!-- Icône d'engrenage SVG (Couleur du texte des boutons, BLANC) -->
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6 text-gray-800">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+        </svg>
+    </button>
 
-        <!-- Bouton de Réinitialisation -->
-        <!-- Reste dans le coin inférieur droit (pour mobile, il est au-dessus du P2, pour desktop, dans le P2) -->
-        <button id="reset-button"
-                onclick="event.stopPropagation(); resetGame()"
-                class="pointer-events-auto absolute bottom-4 right-4 bg-gray-300 hover:bg-gray-400 text-gray-800 text-base font-semibold py-3 px-4 rounded-lg shadow transition duration-200 z-20 hidden">
-            Réinitialiser
-        </button>
-    </div>
+    <!-- Bouton de Réinitialisation -->
+    <button id="reset-button"
+            onclick="event.stopPropagation(); resetGame()"
+            class="pointer-events-auto absolute bottom-4 right-4 bg-gray-300 hover:bg-gray-400 text-gray-800 text-base font-semibold py-3 px-4 rounded-lg shadow transition duration-200 z-20 hidden">
+        Réinitialiser
+    </button>
+
 
     <!-- Zone du Joueur 2 (Droite en Desktop, Bas en Mobile) -->
     <div id="player2-zone" class="player-zone" onclick="switchPlayer(2)">
@@ -569,7 +562,7 @@
 
             // Mise à jour du bouton central
             mainButtonEl.textContent = `Fin de Partie`; 
-            mainButtonEl.classList.remove('bg-yellow-500', 'hover:bg-yellow-600', 'bg-green-600', 'hover:bg-green-700', 'bg-gray-600', 'hover:bg-gray-700');
+            mainButtonEl.classList.remove('bg-indigo-600', 'hover:bg-indigo-700', 'bg-green-600', 'hover:bg-green-700', 'bg-gray-600', 'hover:bg-gray-700');
             mainButtonEl.classList.add('bg-gray-600', 'hover:bg-gray-700'); 
             
             // Met à jour l'affichage et l'indicateur pour masquer l'indicateur
@@ -591,7 +584,7 @@
 
             // Rétablit l'interface
             mainButtonEl.classList.remove('bg-gray-600', 'hover:bg-gray-700', 'bg-green-600');
-            mainButtonEl.classList.add('bg-yellow-500');
+            mainButtonEl.classList.add('bg-indigo-600');
             
             updateVisuals();
         }
@@ -621,13 +614,13 @@
             } else if (isTicking) {
                 mainButtonEl.textContent = 'Pause';
                 // Bouton Pause (Gris)
-                mainButtonEl.classList.remove('bg-yellow-500', 'hover:bg-yellow-600', 'bg-green-600', 'hover:bg-green-700');
+                mainButtonEl.classList.remove('bg-indigo-600', 'hover:bg-indigo-700', 'bg-green-600', 'hover:bg-green-700');
                 mainButtonEl.classList.add('bg-gray-600', 'hover:bg-gray-700');
             } else if (isPaused) {
                 mainButtonEl.textContent = 'Reprendre';
-                // Bouton Reprendre (Jaune)
+                // Bouton Reprendre (Indigo)
                 mainButtonEl.classList.remove('bg-gray-600', 'hover:bg-gray-700', 'bg-green-600', 'hover:bg-green-700');
-                mainButtonEl.classList.add('bg-yellow-500', 'hover:bg-yellow-600');
+                mainButtonEl.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
             }
 
             // Contrôle de la visibilité des boutons de contrôle (Réglages et ELO)
