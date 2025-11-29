@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Horloge d'Échecs</title>
-    <!-- Favicon (ajouté) -->
+    <!-- Favicon -->
     <link rel="icon" type="image/x-icon" href="favicon.ico"> 
     <!-- Chargement de Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -30,13 +30,11 @@
 
         /* Style de base pour l'ensemble de l'affichage de l'horloge */
         .clock-display {
-            display: flex; /* Permet d'aligner la partie MM:SS et la partie .MS */
-            align-items: flex-end; /* CRITICAL: Alignement en bas (même ligne de base) */
+            display: flex; 
+            align-items: flex-end; 
             justify-content: center;
-            /* Le texte doit être au-dessus du hint mais laisser passer le clic au parent */
             pointer-events: none; 
             z-index: 12;
-            /* IMPORTANT: Permet d'encapsuler le témoin et le temps pour le centrer */
             flex-direction: column; 
             align-items: center;
         }
@@ -47,21 +45,18 @@
             align-items: flex-end;
         }
 
-        /* Témoin lumineux (Pastille plus haute) */
+        /* Témoin lumineux */
         .active-indicator {
-            width: 2.5rem; /* 40px sur mobile */
-            height: 2.5rem; /* 40px sur mobile */
-            border-radius: 9999px; /* Cercle */
-            
-            /* Espace entre le témoin et le temps */
+            width: 2.5rem; 
+            height: 2.5rem; 
+            border-radius: 9999px; 
             margin-bottom: 1.5rem; 
-            
             transition: opacity 0.3s, background-color 0.3s;
-            opacity: 0; /* Caché par défaut */
+            opacity: 0; 
             @media (min-width: 640px) {
-                width: 2rem; /* 32px sur desktop */
-                height: 2rem; /* 32px sur desktop */
-                margin-bottom: 0.75rem; /* Espace desktop */
+                width: 2rem; 
+                height: 2rem; 
+                margin-bottom: 0.75rem; 
             }
         }
 
@@ -78,32 +73,23 @@
         }
 
 
-        /*
-         * TAILLE DES POLICES (AJUSTEMENT CRITIQUE)
-         */
-        /* Style pour les grands nombres (MM:SS) */
+        /* TAILLE DES POLICES (AJUSTEMENT CRITIQUE) */
         .main-time {
-            /* Mobile (par défaut, très grand) */
             font-size: 18vw; 
             font-weight: 900;
             line-height: 1;
             text-shadow: 0 0 5px rgba(0,0,0,0.1);
             transition: color 0.1s;
-             /* Desktop (plus petit) - AUCUN CHANGEMENT */
             @media (min-width: 640px) {
                 font-size: 8vw;
             }
         }
         
-        /* Style pour les centièmes de seconde (.CS) */
         .hundredths {
-            /* Mobile (par défaut, grand) */
             font-size: 10vw; 
             font-weight: 900; 
             line-height: 1;
-            /* Ajout pour l'alignement visuel de la ligne de base */
             transform: translateY(-6%); 
-             /* Desktop (plus petit) - AUCUN CHANGEMENT */
             @media (min-width: 640px) {
                 font-size: 4vw;
             }
@@ -111,8 +97,7 @@
 
         /* STYLES pour le message WIN */
         .winner-overlay {
-            /* Adapté pour suivre les centièmes de seconde (ajusté pour rester lisible) */
-            font-size: 10vw; /* Harmonisé avec .hundredths */
+            font-size: 10vw; 
             font-weight: 900; 
             line-height: 1;
             text-shadow: 0 0 5px rgba(0,0,0,0.2); 
@@ -141,13 +126,13 @@
             user-select: none;
             touch-action: manipulation;
             width: 100%;
-            height: 50%; /* 50% de la hauteur en mode mobile (colonne) */
+            height: 50%; 
             position: relative; 
             z-index: 10; 
 
             @media (min-width: 640px) {
-                width: 50%; /* 50% de la largeur en mode desktop (ligne) */
-                height: 100%; /* 100% de la hauteur */
+                width: 50%; 
+                height: 100%; 
             }
         }
 
@@ -155,9 +140,7 @@
         #player1-zone {
             background-color: #1e293b; /* Slate-800 */
             color: white;
-            /* Rotation par défaut (mobile: chronomètre "à l'envers" pour le joueur du haut) */
             transform: rotate(180deg); 
-             /* Annule la rotation en mode desktop pour affichage de gauche à droite (DROIT) */
             @media (min-width: 640px) {
                 transform: rotate(0deg); 
             }
@@ -167,8 +150,6 @@
         #player2-zone {
             background-color: #f1f5f9; /* Slate-100 */
             color: #1e293b; /* Slate-800 */
-            /* Pas de rotation sur mobile (DROIT) */
-            /* Annule la rotation en mode desktop (DROIT) */
             @media (min-width: 640px) {
                 transform: rotate(0deg); 
             }
@@ -197,14 +178,9 @@
 
     <!-- Zone du Joueur 1 (Gauche en Desktop, Haut en Mobile) -->
     <div id="player1-zone" class="player-zone" onclick="switchPlayer(1)">
-        <!-- Message WIN -->
         <div id="winner-overlay-1" class="winner-overlay hidden">GAGNANT</div>
-        
-        <!-- Conteneur principal du temps (avec le témoin) -->
         <div id="time1" class="clock-display">
-            <!-- Témoin Visuel -->
             <div id="indicator1" class="active-indicator"></div>
-            <!-- L'affichage du temps sera généré par innerHTML -->
             <span class="time-wrapper">
                 <span class="main-time">05:00</span>
                 <span class="hundredths">.00</span>
@@ -212,55 +188,54 @@
         </div>
     </div>
 
-    <!-- Bouton Démarrer/Pause/Gagnant : Centré par position fixe et translation -->
-    <button id="main-button"
-            onclick="event.stopPropagation(); startStop()"
-            class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 
-                   pointer-events-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-full shadow-lg transition duration-200 text-xl md:text-xl z-20 hidden">
-        Pause
-    </button>
-    
-    <!-- Boutons de Contrôle dans les Coins (maintenant directement dans le body) -->
+    <!-- Contrôles Centraux -->
+    <div id="controls" class="absolute inset-0 pointer-events-none">
+        
+        <!-- Bouton Démarrer/Pause/Gagnant (Haut à Gauche) -->
+        <button id="main-button"
+                onclick="event.stopPropagation(); handleMainButtonClick()"
+                class="pointer-events-auto absolute top-4 left-4 p-4 rounded-full shadow-lg transition duration-200 z-20 hidden backdrop-blur-sm">
+            <!-- Icône de Cadenas par défaut (sera mis à jour par JS) -->
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+        </button>
 
-    <!-- Bouton de Classement Elo -->
-    <button id="elo-button"
-            onclick="window.location.href='index.html'"
-            class="pointer-events-auto absolute top-4 right-4 bg-gray-300 hover:bg-gray-400 text-gray-800 p-4 rounded-full shadow-lg transition duration-200 z-20">
-        <!-- Icône de flèche droite SVG -->
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6">
-            <path d="M5 12h14M12 5l7 7-7 7"/>
-        </svg>
-    </button>
+        <!-- Bouton de Classement Elo -->
+        <button id="elo-button"
+                onclick="window.location.href='index.html'"
+                class="pointer-events-auto absolute top-4 right-4 bg-gray-300 hover:bg-gray-400 text-gray-800 p-4 rounded-full shadow-lg transition duration-200 z-20 hidden">
+            <!-- Icône de flèche droite SVG -->
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6">
+                <path d="M5 12h14M12 5l7 7-7 7"/>
+            </svg>
+        </button>
 
-    <!-- Bouton de Réglages (Engrenage) -->
-    <button id="settings-button"
-            onclick="event.stopPropagation(); toggleSettings(true)"
-            class="pointer-events-auto absolute bottom-4 left-4 bg-gray-300 hover:bg-gray-400 text-white p-4 rounded-full shadow-lg transition duration-200 z-20">
-        <!-- Icône d'engrenage SVG (Couleur du texte des boutons, BLANC) -->
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6 text-gray-800">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-        </svg>
-    </button>
+        <!-- Bouton de Réglages (Engrenage) -->
+        <button id="settings-button"
+                onclick="event.stopPropagation(); toggleSettings(true)"
+                class="pointer-events-auto absolute bottom-4 left-4 bg-gray-300 hover:bg-gray-400 text-white p-4 rounded-full shadow-lg transition duration-200 z-20">
+            <!-- Icône d'engrenage SVG -->
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6 text-gray-800">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+        </button>
 
-    <!-- Bouton de Réinitialisation -->
-    <button id="reset-button"
-            onclick="event.stopPropagation(); resetGame()"
-            class="pointer-events-auto absolute bottom-4 right-4 bg-gray-300 hover:bg-gray-400 text-gray-800 text-base font-semibold py-3 px-4 rounded-lg shadow transition duration-200 z-20 hidden">
-        Réinitialiser
-    </button>
-
+        <!-- Bouton de Réinitialisation -->
+        <button id="reset-button"
+                onclick="event.stopPropagation(); resetGame()"
+                class="pointer-events-auto absolute bottom-4 right-4 bg-gray-300 hover:bg-gray-400 text-gray-800 text-base font-semibold py-3 px-4 rounded-lg shadow transition duration-200 z-20 hidden">
+            Réinitialiser
+        </button>
+    </div>
 
     <!-- Zone du Joueur 2 (Droite en Desktop, Bas en Mobile) -->
     <div id="player2-zone" class="player-zone" onclick="switchPlayer(2)">
-        <!-- Message WIN -->
         <div id="winner-overlay-2" class="winner-overlay hidden">GAGNANT</div>
-        
-        <!-- Conteneur principal du temps (avec le témoin) -->
         <div id="time2" class="clock-display">
-            <!-- Témoin Visuel -->
             <div id="indicator2" class="active-indicator"></div>
-            <!-- L'affichage du temps sera généré par innerHTML -->
             <span class="time-wrapper">
                 <span class="main-time">05:00</span>
                 <span class="hundredths">.00</span>
@@ -324,19 +299,48 @@
 
     <script>
         // --- Configuration initiale ---
-        // Temps initial est maintenant stocké en secondes
-        let initialTimeTotalSeconds = 300; // 5 minutes par défaut (5 * 60)
-        let incrementSeconds = 0; // Incrément par défaut en secondes
-        const timeLimitMs = 10; // Intervalle de 10ms pour afficher les centièmes
+        let initialTimeTotalSeconds = 300; 
+        let incrementSeconds = 0; 
+        const timeLimitMs = 10; 
+        const UNLOCK_DURATION = 1000; 
 
         // --- Variables d'état du jeu ---
         let time1 = initialTimeTotalSeconds;
         let time2 = initialTimeTotalSeconds;
-        let isRunning = false; // Le jeu est-il en session (démarré ou en pause) ?
-        let isTicking = false; // Le chronomètre est-il en cours de décompte ?
-        let currentPlayer = 0; // 0: Prêt/Arrêté, 1: Joueur 1 (Haut/Gauche), 2: Joueur 2 (Bas/Droite)
-        let winnerPlayer = 0; // 0: Pas de gagnant, 1: P1 gagne, 2: P2 gagne
+        let isRunning = false; // Indique si le jeu a démarré (Play/Pause/Lock button visible)
+        let isTicking = false; // Indique si le temps est en train de défiler
+        let isButtonLocked = true; // Mobile seulement: Indique si le bouton central est verrouillé
+        let currentPlayer = 0; // 1 ou 2
+        let winnerPlayer = 0; // 0, 1 ou 2
         let timerInterval;
+        let lockTimeout; 
+
+        // --- Détection de mode (NOUVEAU) ---
+        let isDesktopMode = window.matchMedia('(min-width: 640px)').matches;
+        // Écoute des changements de taille d'écran
+        window.matchMedia('(min-width: 640px)').addEventListener('change', (e) => {
+            isDesktopMode = e.matches;
+            // On réinitialise pour appliquer les nouveaux réglages visuels et de jeu
+            resetGame(); 
+        });
+
+        // --- Nouvelles définitions d'icônes SVG pour le bouton principal ---
+        const ICON_LOCK = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>`;
+
+        const ICON_PAUSE = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6">
+                <line x1="10" y1="4" x2="10" y2="20"/>
+                <line x1="14" y1="4" x2="14" y2="20"/>
+            </svg>`;
+
+        const ICON_PLAY = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6">
+                <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>`;
 
         // --- Références DOM ---
         const time1El = document.getElementById('time1');
@@ -356,39 +360,79 @@
         
         // --- Fonctions Utilitaires ---
 
-        // Formate les secondes en MM:SS et centièmes de seconde (.CS)
         function formatTime(totalSeconds) {
             if (totalSeconds < 0) totalSeconds = 0;
-
-            // Utilise les millisecondes pour une meilleure précision d'affichage
             const totalMs = Math.max(0, Math.round(totalSeconds * 1000));
-            
             const minutes = Math.floor(totalMs / 60000);
             const seconds = Math.floor((totalMs % 60000) / 1000);
-            
-            // Calcule les centièmes (les deux premiers chiffres de la partie décimale)
             const hundredths = Math.floor((totalMs % 1000) / 10); 
-
             const mmss = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-            // Affiche les centièmes sur deux chiffres
             const cs = `${String(hundredths).padStart(2, '0')}`; 
-
             return { mmss, cs };
         }
+        
+        // Active le déverrouillage temporaire du bouton (Mobile uniquement)
+        function unlockButton() {
+            if (isDesktopMode) return; // Ignorer en mode Desktop
+
+            if (lockTimeout) {
+                clearTimeout(lockTimeout); 
+            }
+
+            isButtonLocked = false;
+            updateVisuals(); 
+
+            console.log("[Verrou] Bouton déverrouillé pour 1 seconde.");
+
+            lockTimeout = setTimeout(() => {
+                if (isRunning && winnerPlayer === 0) {
+                    isButtonLocked = true;
+                    updateVisuals();
+                    console.log("[Verrou] Reverrouillage automatique.");
+                } else {
+                    console.log("[Verrou] Reverrouillage annulé (jeu arrêté).");
+                }
+            }, UNLOCK_DURATION);
+        }
+
+        // Gère les actions sur le bouton principal (Cadenas -> Pause/Reprendre)
+        function handleMainButtonClick() {
+            if (!isRunning || winnerPlayer !== 0) {
+                console.log("[MainButton] Bouton Ignoré: Le jeu n'est pas en cours.");
+                return;
+            }
+
+            if (isDesktopMode) {
+                // DESKTOP : Le bouton est toujours un simple toggle Pause/Play.
+                startStop();
+            } else {
+                // MOBILE : Logique de verrouillage
+                if (isButtonLocked) {
+                    unlockButton(); 
+                } else {
+                    startStop(); 
+                    // Après avoir cliqué sur Pause/Reprendre, on reverrouille immédiatement
+                    if (isRunning) { 
+                        isButtonLocked = true;
+                        clearTimeout(lockTimeout); 
+                        updateVisuals(); 
+                        console.log("[Verrou] Verrouillage immédiat après action Pause/Reprendre.");
+                    }
+                }
+            }
+        }
+
 
         // --- Logique de l'Horloge ---
 
-        // Met à jour l'affichage de l'horloge pour un joueur
         function updateDisplay(player) {
             const time = player === 1 ? time1 : time2;
             const element = player === 1 ? time1El : time2El;
             const zone = player === 1 ? player1ZoneEl : player2ZoneEl;
             const winnerOverlayEl = player === 1 ? winnerOverlay1El : winnerOverlay2El;
 
-            // Nouvelle logique de formatage pour MM:SS et .CS
             const { mmss, cs } = formatTime(time);
 
-            // Mise à jour de l'affichage avec le formatage HTML (on garde la structure du témoin)
             const timeHTML = `
                 <div id="indicator${player}" class="active-indicator"></div>
                 <span class="time-wrapper">
@@ -398,29 +442,32 @@
             `;
             element.innerHTML = timeHTML; 
 
+            const baseColor1 = '#1e293b'; 
+            const baseColor2 = '#f1f5f9'; 
+            const alertColor = '#ef4444'; 
+            
+            // Détermine si la zone du joueur est cliquable (uniquement si le temps défile)
+            const isTappable = currentPlayer === player && isTicking;
 
-            // Récupère la couleur de base pour gérer le changement de couleur d'alerte
-            const baseColor1 = '#1e293b'; // Slate-800 (Fond P1 / Texte P2)
-            const baseColor2 = '#f1f5f9'; // Slate-100 (Fond P2)
-            const alertColor = '#ef4444'; // Rouge-500
+            // Détermine si le joueur est le joueur actuel (même en pause)
+            const isActivePlayer = currentPlayer === player && isRunning; 
 
-            // Gère l'état visuel (ombre, curseur, couleur du fond)
-            if (currentPlayer === player && isTicking) {
+            if (isTicking) {
                 zone.classList.add('shadow-2xl'); 
                 zone.style.cursor = 'pointer';
             } else {
                 zone.classList.remove('shadow-2xl');
-                zone.style.cursor = 'default';
+                // Laisse le curseur par défaut quand en pause ou pas son tour
+                zone.style.cursor = 'default'; 
             }
 
-            // Gère la couleur d'alerte de temps bas
-            const isLowTime = currentPlayer === player && isTicking && time < 10 && time > 0;
+            // Changement de couleur pour le temps bas (seulement quand le temps défile)
+            const isLowTime = isTappable && time < 10 && time > 0;
             
             zone.style.backgroundColor = isLowTime 
                 ? alertColor
                 : (player === 1 ? baseColor1 : baseColor2);
             
-            // Gère la couleur du texte (spécifique pour P2)
             if (player === 2) {
                 const textColor = isLowTime ? 'white' : baseColor1;
                 if (zone) zone.style.color = textColor;
@@ -430,34 +477,38 @@
                  winnerOverlay1El.style.color = 'white'; 
             }
 
-            // Gère l'affichage du message WIN
-            if (winnerPlayer === player) {
+            // Gestion de l'affichage GAGNANT/PERDANT
+            if (winnerPlayer === 1 && player === 2) {
+                winnerOverlayEl.textContent = 'PERDANT';
                 winnerOverlayEl.classList.remove('hidden');
+            } else if (winnerPlayer === 2 && player === 1) {
+                winnerOverlayEl.textContent = 'PERDANT';
+                winnerOverlayEl.classList.remove('hidden');
+            } else if (winnerPlayer === player) {
+                 winnerOverlayEl.textContent = 'GAGNANT';
+                 winnerOverlayEl.classList.remove('hidden');
             } else {
                 winnerOverlayEl.classList.add('hidden');
             }
 
-             // Mise à jour de l'indicateur visuel (doit être fait après l'update de innerHTML)
+            // *** MISE À JOUR CRITIQUE : PASTILLE VISIBLE MÊME EN PAUSE ***
              const currentIndicatorEl = document.getElementById(`indicator${player}`);
              if (currentIndicatorEl) {
-                 // Supprime les anciennes classes d'indicateur
                  currentIndicatorEl.classList.remove('active-p1-white', 'active-p2-dark');
-
-                 if (currentPlayer === player && isTicking) {
-                     // Ajoute la classe spécifique selon le joueur
-                     // P1 (fond sombre) -> Pastille Blanche
-                     // P2 (fond clair) -> Pastille Foncée (couleur du texte)
+                 
+                 // Condition pour afficher la pastille: Le jeu est en cours ET c'est le tour de ce joueur.
+                 if (isActivePlayer) {
                      currentIndicatorEl.classList.add(player === 1 ? 'active-p1-white' : 'active-p2-dark');
                  }
+                 // Si c'est en pause, on enlève l'ombre de la zone active pour indiquer l'état "dormant"
+                 if (isActivePlayer && !isTicking) {
+                    zone.classList.remove('shadow-2xl'); 
+                 }
              }
-
         }
 
-        // Fonction principale de décompte
         function tick() {
             if (!isTicking) return;
-
-            // Décrément en secondes (10ms / 1000 = 0.01s)
             const timeDecrement = timeLimitMs / 1000;
 
             if (currentPlayer === 1) {
@@ -478,18 +529,16 @@
             updateDisplay(2);
         }
 
-        // Change de joueur et applique l'incrément
         function switchPlayer(clickedPlayer) {
-            console.log(`[Switch] Clic sur P${clickedPlayer}. État: P${currentPlayer}, Ticking: ${isTicking}, Running: ${isRunning}`);
-            
-            const isGameOver = time1 <= 0 || time2 <= 0;
+            const isGameOver = winnerPlayer !== 0; 
             if (isGameOver) return;
 
-            // LOGIQUE DE DÉMARRAGE SIMPLIFIÉE :
+            // LOGIQUE DE DÉMARRAGE 
             if (!isRunning) {
                 isRunning = true; 
                 isTicking = true; 
                 
+                // Le joueur qui clique cède le tour à l'autre joueur.
                 currentPlayer = clickedPlayer === 1 ? 2 : 1; 
 
                 timerInterval = setInterval(tick, timeLimitMs);
@@ -518,31 +567,55 @@
                  console.log("[Switch] Rejet: Horloge en pause, veuillez utiliser le bouton 'Reprendre'.");
                  return;
             }
-
+            
+            // Verrouillage du bouton principal après un coup (Mobile seulement)
+            if (!isDesktopMode) {
+                isButtonLocked = true;
+                clearTimeout(lockTimeout); 
+            }
+            
             updateVisuals();
         }
         
-        // Fonction qui encapsule la logique de passage de joueur (pour le clavier)
         function handleSpacebarPress() {
+            if (settingsModalEl && !settingsModalEl.classList.contains('hidden')) {
+                return; 
+            }
+            
             if (isTicking) {
                 switchPlayer(currentPlayer);
             } 
             else if (isRunning && !isTicking && time1 > 0 && time2 > 0) {
-                 startStop();
+                // Si la partie est en pause (isRunning=true, isTicking=false)
+                if (isDesktopMode) {
+                    // Desktop: La barre d'espace agit comme le bouton Pause/Play (startStop)
+                    startStop(); 
+                } else {
+                    // Mobile: La barre d'espace agit comme un clic sur le bouton central
+                    if (isButtonLocked) {
+                        unlockButton();
+                    } else {
+                        startStop();
+                    }
+                }
             }
         }
 
-        // Démarre, met en pause ou initialise la partie (Maintenant seulement Pause/Reprendre)
+        // Démarre/met en pause la partie
         function startStop() {
-            if (!isRunning || time1 <= 0 || time2 <= 0) return; 
+            if (!isRunning || winnerPlayer !== 0) {
+                return;
+            }
+            
+            if (!isDesktopMode && isButtonLocked) {
+                return; // En mobile, nécessite un déverrouillage préalable
+            }
 
-            // Case 1: L'horloge compte activement -> PAUSE
             if (isTicking) {
                 clearInterval(timerInterval);
                 isTicking = false;
                 console.log(`[StartStop] Pause. Joueur en attente: ${currentPlayer}`);
             } 
-            // Case 2: Le jeu est PAUSE -> REPRENDRE
             else {
                 isTicking = true;
                 timerInterval = setInterval(tick, timeLimitMs);
@@ -552,90 +625,105 @@
             updateVisuals();
         }
 
-        // Gère la fin de partie
         function gameOver(loser) {
             isRunning = false;
             isTicking = false;
             clearInterval(timerInterval);
             currentPlayer = 0;
             winnerPlayer = loser === 1 ? 2 : 1; 
-
-            // Mise à jour du bouton central
-            mainButtonEl.textContent = `Fin de Partie`; 
-            mainButtonEl.classList.remove('bg-indigo-600', 'hover:bg-indigo-700', 'bg-green-600', 'hover:bg-green-700', 'bg-gray-600', 'hover:bg-gray-700');
-            mainButtonEl.classList.add('bg-gray-600', 'hover:bg-gray-700'); 
             
-            // Met à jour l'affichage et l'indicateur pour masquer l'indicateur
+            clearTimeout(lockTimeout); 
+            isButtonLocked = true; 
+
             updateDisplay(1);
             updateDisplay(2);
             updateVisuals();
         }
 
-        // Réinitialise l'horloge
         function resetGame() {
             clearInterval(timerInterval);
+            clearTimeout(lockTimeout);
             time1 = initialTimeTotalSeconds;
             time2 = initialTimeTotalSeconds;
             isRunning = false; 
             isTicking = false; 
+            isButtonLocked = true; // Réinitialise l'état du cadenas à verrouillé
             currentPlayer = 0;
             winnerPlayer = 0; 
             console.log("[Reset] Jeu réinitialisé.");
-
-            // Rétablit l'interface
-            mainButtonEl.classList.remove('bg-gray-600', 'hover:bg-gray-700', 'bg-green-600');
-            mainButtonEl.classList.add('bg-indigo-600');
             
             updateVisuals();
         }
 
-        // Met à jour tous les éléments visuels
+        // Met à jour tous les éléments visuels, y compris le bouton principal
         function updateVisuals() {
             updateDisplay(1);
             updateDisplay(2);
             
-            // État 1: Prêt à démarrer (Pas en cours, temps > 0)
-            const isReadyForFirstMove = !isRunning && time1 > 0 && time2 > 0; 
-            // État 2: En Pause (En cours, non décompte, temps > 0)
-            const isPaused = isRunning && !isTicking && time1 > 0 && time2 > 0;
-            // État 3: Game Over
-            const isGameOver = time1 <= 0 || time2 <= 0;
+            const isGameOver = winnerPlayer !== 0;
+            
+            // 1. Visibilité du bouton principal : Seulement si la partie est en cours (démarré ou en pause)
+            mainButtonEl.classList.toggle('hidden', !isRunning || isGameOver);
 
-            // Contrôle de la visibilité du bouton central : Visible après le premier coup ou fin de partie
-            if (isReadyForFirstMove) {
-                mainButtonEl.classList.add('hidden'); // Caché avant le premier coup
-            } else if (isRunning || isGameOver) {
-                mainButtonEl.classList.remove('hidden'); 
+
+            // 2. Gère le contenu et l'état de clic du bouton principal
+            let iconHTML;
+            let buttonBaseClasses;
+            
+            // Classes de couleurs et de fonds à retirer systématiquement
+            const classesToRemove = [
+                'bg-white/30', 'border', 'border-gray-400', 'hover:bg-white/50', 'text-gray-800',
+                'bg-red-600', 'hover:bg-red-700', 'bg-green-600', 'hover:bg-green-700', 'text-white'
+            ];
+            classesToRemove.forEach(cls => mainButtonEl.classList.remove(cls));
+            
+            mainButtonEl.classList.add('backdrop-blur-sm'); // Laisse le flou en permanence
+
+            if (isDesktopMode) {
+                // *** MODE DESKTOP ***
+                // Toujours Pause/Play, toujours Blanc Transparent (comme demandé)
+                if (isTicking) {
+                    iconHTML = ICON_PAUSE;
+                } else { 
+                    iconHTML = ICON_PLAY;
+                }
+                // Blanc Transparent (bg-white/30) est appliqué pour le mode desktop
+                buttonBaseClasses = 'bg-white/30 border border-gray-400 text-gray-800 hover:bg-white/50';
+                
+            } else {
+                // *** MODE MOBILE (Logique Cadenas) ***
+                if (isButtonLocked) {
+                    // État Cadenas: Verrouillé par défaut -> Fond Blanc Transparent (comme demandé)
+                    iconHTML = ICON_LOCK;
+                    buttonBaseClasses = 'bg-white/30 border border-gray-400 text-gray-800 hover:bg-white/50'; 
+                } else if (isTicking) {
+                    // Ticking: Icône Pause (ROUGE)
+                    iconHTML = ICON_PAUSE;
+                    buttonBaseClasses = 'bg-red-600 hover:bg-red-700 text-white';
+                } else if (isRunning && !isTicking) {
+                    // Paused: Icône Lecture (Reprendre) (VERT)
+                    iconHTML = ICON_PLAY;
+                    buttonBaseClasses = 'bg-green-600 hover:bg-green-700 text-white';
+                }
             }
             
-            // Contrôle du texte et des couleurs du bouton central
-            if (isGameOver) {
-                // Le texte et la couleur grise sont gérés dans gameOver()
-            } else if (isTicking) {
-                mainButtonEl.textContent = 'Pause';
-                // Bouton Pause (Gris)
-                mainButtonEl.classList.remove('bg-indigo-600', 'hover:bg-indigo-700', 'bg-green-600', 'hover:bg-green-700');
-                mainButtonEl.classList.add('bg-gray-600', 'hover:bg-gray-700');
-            } else if (isPaused) {
-                mainButtonEl.textContent = 'Reprendre';
-                // Bouton Reprendre (Indigo)
-                mainButtonEl.classList.remove('bg-gray-600', 'hover:bg-gray-700', 'bg-green-600', 'hover:bg-green-700');
-                mainButtonEl.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
-            }
+            mainButtonEl.innerHTML = iconHTML; // Met à jour l'icône
+            buttonBaseClasses.split(' ').forEach(cls => mainButtonEl.classList.add(cls));
 
-            // Contrôle de la visibilité des boutons de contrôle (Réglages et ELO)
-            const isControlVisible = !isTicking;
+            mainButtonEl.disabled = false;
+            mainButtonEl.style.cursor = 'pointer';
+
+            // 3. Contrôle de la visibilité des autres boutons de contrôle
+            const isControlVisible = winnerPlayer !== 0 || !isRunning; 
             document.getElementById('settings-button').classList.toggle('hidden', !isControlVisible);
             resetButtonEl.classList.toggle('hidden', !isControlVisible);
             document.getElementById('elo-button').classList.toggle('hidden', !isControlVisible);
-
         }
 
         // --- Logique des Réglages (Mode Édition) ---
 
-        // Ouvre ou ferme la modale de réglages
         function toggleSettings(show, event) {
-            if (isRunning) return; // Ne pas ouvrir si le jeu est en cours
+            if (isRunning) return; 
             
             if (show) {
                 const minutes = Math.floor(initialTimeTotalSeconds / 60);
@@ -652,7 +740,6 @@
             }
         }
 
-        // Met à jour l'état visuel des boutons d'incrément
         function updateIncrementSelection(selectedIncrement) {
             incrementButtons.forEach(btn => {
                 const inc = parseInt(btn.dataset.increment);
@@ -673,7 +760,6 @@
             currentIncrementDisplay.textContent = `Incrément sélectionné : +${selectedIncrement} secondes`;
         }
 
-        // Gestionnaire de clic pour les boutons d'incrément prédéfinis
         incrementButtons.forEach(btn => {
             btn.addEventListener('click', () => {
                 const inc = parseInt(btn.dataset.increment);
@@ -683,7 +769,6 @@
             });
         });
 
-        // Gestionnaire d'input pour l'incrément personnalisé
         customIncrementInput.addEventListener('input', () => {
             let inc = parseInt(customIncrementInput.value);
             if (isNaN(inc) || inc < 0) inc = 0;
@@ -694,7 +779,6 @@
             updateIncrementSelection(inc);
         });
 
-        // Applique les réglages et réinitialise le jeu
         function applySettings() {
             let newMinutes = parseInt(minutesInputEl.value) || 0;
             let newSeconds = parseInt(secondsInputEl.value) || 0;
@@ -745,7 +829,6 @@
 
         // Initialisation au chargement
         window.onload = () => {
-            // Initialise l'affichage avec les valeurs par défaut
             resetGame(); 
         }
     </script>
