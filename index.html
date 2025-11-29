@@ -1299,6 +1299,34 @@
         // Initialize the app when the window loads
         window.onload = initializeApplication;
     </script>
+	<!-- Font Awesome pour l'icône chronomètre -->
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+         <!-- Style pour le bouton chronomètre -->
+    <style>
+    #chrono-button {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        background: #2c3e50;
+        color: white;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        font-size: 22px;
+        text-decoration: none;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+        transition: 0.2s;
+        z-index: 1000;
+    }
+    #chrono-button:hover {
+        background: #1a242f;
+        transform: scale(1.05);
+    }
+    </style>
 </head>
 
 <body class="bg-background min-h-screen font-sans">
@@ -1308,26 +1336,40 @@
         <div class="max-w-7xl mx-auto flex justify-between items-center">
             <h1 class="text-2xl font-bold text-primary">JD Elo</h1>
 
-            <!-- Admin Panel and Login -->
+            <!-- Controls (Chrono + Admin) -->
             <div class="flex items-center space-x-4">
-                <!-- DB Status -->
-                <div id="db-status" class="hidden text-xs font-medium px-2.5 py-0.5 rounded-full">
-                    <!-- Status affiché par JS -->
-                </div>
                 
-                <!-- Admin Pencil Icon (Player Management) -->
-                <button id="admin-pencil" onclick="togglePlayerManagementModal(true)" 
-                        class="p-2 rounded-full bg-primary text-white hover:bg-primary/80 transition duration-150 shadow-lg hidden" 
-                        title="Gérer les joueurs">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
-                </button>
+                <!-- Chrono Button -->
+                <a href="chrono.html" title="Pendule d'Échec"
+                   class="p-2 rounded-full bg-indigo-500 text-white hover:bg-indigo-600 transition duration-150 shadow-lg flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                </a>
 
-                <!-- Admin Login Button/Input -->
-                <div id="admin-login-container">
-                    <button onclick="toggleAdminLoginModal(true)" 
-                            class="px-4 py-2 bg-indigo-500 text-white text-sm font-medium rounded-md hover:bg-indigo-600 transition duration-150 shadow-md">
-                        Admin
+                <!-- Admin Panel and Login -->
+                <div class="flex items-center space-x-4">
+                    <!-- DB Status -->
+                    <div id="db-status" class="hidden text-xs font-medium px-2.5 py-0.5 rounded-full">
+                        <!-- Status affiché par JS -->
+                    </div>
+                    
+                    <!-- Admin Pencil Icon (Player Management) -->
+                    <button id="admin-pencil" onclick="togglePlayerManagementModal(true)" 
+                            class="p-2 rounded-full bg-primary text-white hover:bg-primary/80 transition duration-150 shadow-lg hidden" 
+                            title="Gérer les joueurs">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
+                        </svg>
                     </button>
+
+                    <!-- Admin Login Button/Input -->
+                    <div id="admin-login-container">
+                        <button onclick="toggleAdminLoginModal(true)" 
+                                class="px-4 py-2 bg-indigo-500 text-white text-sm font-medium rounded-md hover:bg-indigo-600 transition duration-150 shadow-md">
+                            Admin
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1336,7 +1378,7 @@
     <!-- Main Content -->
     <main class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
         
-        <!-- Loading Spinner (will hide after initial sync) -->
+        <!-- Loading Spinner -->
         <div id="loading-spinner" class="flex flex-col justify-center items-center py-20">
             <svg class="animate-spin-slow h-10 w-10 text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -1345,16 +1387,16 @@
             <span id="loading-message" class="ml-3 mt-3 text-lg text-gray-600">Initialisation de l'application...</span>
         </div>
 
-        <!-- Match Recorder (Admin Only) - DÉPLACÉ EN HAUT -->
+        <!-- Match Recorder (Admin Only) -->
         <section id="match-recorder-container" class="mt-8 mb-8 hidden max-w-lg mx-auto bg-white p-6 rounded-xl shadow-2xl border border-gray-100">
             <div id="match-recorder">
-                <!-- Match recorder form will be rendered here by JS -->
+                <!-- Match recorder form rendered by JS -->
             </div>
         </section>
 
-        <!-- Ranking Table Container - LAISSER ICI POUR LE CLASSEMENT PRINCIPAL -->
+        <!-- Ranking Table Container -->
         <section id="ranking-list" class="mt-8">
-            <!-- Ranking table and PDF button will be rendered here by JS -->
+            <!-- Ranking table and PDF button rendered by JS -->
         </section>
 
     </main>
@@ -1368,122 +1410,106 @@
             <div class="mt-2">
                 <input type="password" id="admin-password" placeholder="Mot de passe" 
                        class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
-                
                 <p id="admin-login-message" class="mt-2 text-sm text-center ui-message"></p>
             </div>
             <div class="mt-5 sm:mt-6 sm:grid sm:grid-flow-row-dense sm:grid-cols-2 sm:gap-3">
-                <button onclick="handleAdminLogin()" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary text-base font-medium text-white hover:bg-primary/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary sm:col-start-2 sm:text-sm transition duration-150">
+                <button onclick="handleAdminLogin()" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary text-base font-medium text-white hover:bg-primary/80 sm:col-start-2 sm:text-sm transition duration-150">
                     Se Connecter
                 </button>
-                <button onclick="toggleAdminLoginModal(false)" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:col-start-1 sm:text-sm transition duration-150">
+                <button onclick="toggleAdminLoginModal(false)" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 sm:mt-0 sm:col-start-1 sm:text-sm transition duration-150">
                     Annuler
                 </button>
             </div>
         </div>
     </div>
 
-    <!-- Player Management Modal (Pencil Click) - Increased max-width to max-w-4xl -->
+    <!-- Player Management Modal -->
     <div id="player-management-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full hidden z-50">
         <div class="relative top-10 mx-auto p-6 border w-11/12 max-w-4xl shadow-2xl rounded-lg bg-white">
             <h3 class="text-2xl font-extrabold text-primary border-b pb-2 mb-4">Gestion des Joueurs</h3>
             <button onclick="togglePlayerManagementModal(false)" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
-                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
             </button>
-
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <!-- Add Player Section -->
+                <!-- Add Player -->
                 <div class="p-4 bg-gray-50 rounded-lg border border-gray-200">
                     <h4 class="text-xl font-semibold mb-3 text-secondary">Ajouter un Nouveau Joueur</h4>
-                    <input type="text" id="new-player-name" placeholder="Nom du joueur" 
-                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-secondary focus:border-secondary sm:text-sm">
-                    <button onclick="addPlayer()" class="mt-3 w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-secondary text-base font-medium text-white hover:bg-emerald-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-secondary sm:text-sm transition duration-150">
+                    <input type="text" id="new-player-name" placeholder="Nom du joueur" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-secondary focus:border-secondary sm:text-sm">
+                    <button onclick="addPlayer()" class="mt-3 w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-secondary text-base font-medium text-white hover:bg-emerald-600 sm:text-sm transition duration-150">
                         Ajouter (Elo Initial: 500)
                     </button>
                 </div>
 
-                <!-- Player List Section -->
+                <!-- Player List -->
                 <div class="p-4 bg-white rounded-lg border border-gray-200">
                     <h4 class="text-xl font-semibold mb-3 text-primary">Liste & Actions (Renommer/Modifier Stats)</h4>
                     <ul id="player-list-container" class="max-h-60 overflow-y-auto space-y-1">
-                        <!-- Player list will be rendered here by JS -->
+                        <!-- Player list rendered by JS -->
                     </ul>
                 </div>
             </div>
-             <p id="player-management-message" class="mt-4 text-center text-sm font-medium ui-message"></p>
+            <p id="player-management-message" class="mt-4 text-center text-sm font-medium ui-message"></p>
         </div>
     </div>
-    
-    <!-- Rename/Update Player Details Modal -->
+
+    <!-- Rename/Update Player Modal -->
     <div id="rename-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full hidden z-50">
         <div class="relative top-10 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
             <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Renommer Joueur / Modifier Stats</h3>
             <div class="mt-2 space-y-4">
                 <input type="hidden" id="rename-player-id">
-                
                 <div>
                     <label for="rename-player-name" class="block text-sm font-medium text-gray-700">Nom:</label>
-                    <input type="text" id="rename-player-name" 
-                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                    <input type="text" id="rename-player-name" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
                 </div>
-                
                 <div>
                     <label for="new-elo-score" class="block text-sm font-medium text-gray-700">Score Elo:</label>
-                    <input type="number" id="new-elo-score" placeholder="Ex: 1500"
-                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                    <input type="number" id="new-elo-score" placeholder="Ex: 1500" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
                 </div>
-                
                 <div class="flex space-x-2">
-                    <!-- Champ pour les Victoires (Wins) -->
                     <div class="w-1/2">
                         <label for="new-wins" class="block text-sm font-medium text-gray-700">Victoires (W):</label>
-                        <input type="number" id="new-wins" placeholder="Ex: 10" min="0"
-                               class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                        <input type="number" id="new-wins" placeholder="Ex: 10" min="0" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
                     </div>
-
-                    <!-- Champ pour les Défaites (Losses) -->
                     <div class="w-1/2">
                         <label for="new-losses" class="block text-sm font-medium text-gray-700">Défaites (L):</label>
-                        <input type="number" id="new-losses" placeholder="Ex: 5" min="0"
-                               class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                        <input type="number" id="new-losses" placeholder="Ex: 5" min="0" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
                     </div>
                 </div>
-
-                <!-- NOUVEAU Champ pour les Parties Jouées (Matches) -->
                 <div>
                     <label for="new-matches" class="block text-sm font-medium text-gray-700">Parties Jouées (Total):</label>
-                    <input type="number" id="new-matches" placeholder="Ex: 18" min="0"
-                           class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
+                    <input type="number" id="new-matches" placeholder="Ex: 18" min="0" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary focus:border-primary sm:text-sm">
                     <p class="text-xs text-gray-500 mt-1">Doit être supérieur ou égal à W + L. Inclut les matchs nuls.</p>
                 </div>
-
                 <p id="rename-modal-message" class="mt-2 text-sm text-center ui-message"></p>
             </div>
             <div class="mt-5 sm:mt-6 sm:grid sm:grid-flow-row-dense sm:grid-cols-2 sm:gap-3">
-                <button onclick="updatePlayerDetails()" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary text-base font-medium text-white hover:bg-primary/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary sm:col-start-2 sm:text-sm transition duration-150">
+                <button onclick="updatePlayerDetails()" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-primary text-base font-medium text-white hover:bg-primary/80 sm:col-start-2 sm:text-sm transition duration-150">
                     Confirmer les Modifications
                 </button>
-                <button onclick="toggleRenameModal(false)" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:col-start-1 sm:text-sm transition duration-150">
+                <button onclick="toggleRenameModal(false)" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 sm:mt-0 sm:col-start-1 sm:text-sm transition duration-150">
                     Annuler
                 </button>
             </div>
         </div>
     </div>
-    
-    <!-- Generic Confirmation Modal (Replaces standard confirm()) -->
+
+    <!-- Generic Confirmation Modal -->
     <div id="confirmation-modal" class="fixed inset-0 bg-gray-600 bg-opacity-75 overflow-y-auto h-full w-full hidden z-50">
         <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
             <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Confirmation Requise</h3>
             <p id="confirmation-message" class="mt-2 text-sm text-gray-700"></p>
             <div class="mt-5 sm:mt-6 sm:grid sm:grid-flow-row-dense sm:grid-cols-2 sm:gap-3">
-                <button onclick="confirmAction(true)" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:col-start-2 sm:text-sm transition duration-150">
+                <button onclick="confirmAction(true)" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 sm:col-start-2 sm:text-sm transition duration-150">
                     Confirmer
                 </button>
-                <button onclick="confirmAction(false)" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:col-start-1 sm:text-sm transition duration-150">
+                <button onclick="confirmAction(false)" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 sm:mt-0 sm:col-start-1 sm:text-sm transition duration-150">
                     Annuler
                 </button>
             </div>
         </div>
     </div>
-    
+
 </body>
-</html>
