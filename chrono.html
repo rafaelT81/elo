@@ -213,20 +213,21 @@
     </div>
 
     <!-- Contrôles Centraux -->
-    <!-- AJUSTEMENT ICI : Utiliser flexbox pour le centrage parfait -->
-    <div id="controls" class="absolute inset-0 flex items-center justify-center pointer-events-none">
+    <!-- J'ai retiré 'flex items-center justify-center' pour pouvoir positionner le main-button en absolu sur la ligne de séparation -->
+    <div id="controls" class="absolute inset-0 pointer-events-none">
         
         <!-- Bouton Démarrer/Pause/Gagnant -->
         <button id="main-button"
                 onclick="event.stopPropagation(); startStop()"
-                class="pointer-events-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-full shadow-lg transition duration-200 text-xl md:text-xl z-20 hidden">
+                class="pointer-events-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-6 rounded-full shadow-lg transition duration-200 text-xl md:text-xl z-20 hidden
+                       absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
             Pause
         </button>
 
         <!-- Bouton de Classement Elo -->
         <button id="elo-button"
-                onclick="window.location.href='index.html'"
-                class="pointer-events-auto absolute top-4 right-4 bg-gray-300 hover:bg-gray-400 text-gray-800 p-4 rounded-full shadow-lg transition duration-200 z-20">
+                onclick="window.location.href='classement-elo.html'"
+                class="pointer-events-auto absolute top-4 right-4 bg-gray-300 hover:bg-gray-400 text-gray-800 p-4 rounded-full shadow-lg transition duration-200 z-20 hidden">
             <!-- Icône de flèche droite SVG -->
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6">
                 <path d="M5 12h14M12 5l7 7-7 7"/>
@@ -236,7 +237,7 @@
         <!-- Bouton de Réglages (Engrenage) -->
         <button id="settings-button"
                 onclick="event.stopPropagation(); toggleSettings(true)"
-                class="pointer-events-auto absolute bottom-4 left-4 bg-gray-300 hover:bg-gray-400 text-white p-4 rounded-full shadow-lg transition duration-200 z-20">
+                class="pointer-events-auto absolute bottom-4 left-4 bg-gray-300 hover:bg-gray-400 text-white p-4 rounded-full shadow-lg transition duration-200 z-20 hidden">
             <!-- Icône d'engrenage SVG (Couleur du texte des boutons, BLANC) -->
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6 text-gray-800">
                 <circle cx="12" cy="12" r="3" />
