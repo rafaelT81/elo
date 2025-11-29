@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Horloge d'Échecs</title>
+    <!-- Chargement de Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Configuration de la police Inter et adaptation pour mobile */
+        :root {
+            font-family: 'Inter', sans-serif;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        body {
+            height: 100%;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Style de base pour l'ensemble de l'affichage de l'horloge */
+        .clock-display {
+            display: flex; /* Permet d'aligner la partie MM:SS et la partie .MS */
+            align-items: flex-end; /* CRITICAL: Alignement en bas (même ligne de base) */
+            justify-content: center;
+            /* Le texte doit être au-dessus du hint mais laisser passer le clic au parent */
+            pointer-events: none; 
+            z-index: 12;
+        }
+
+        /* Les sous-éléments doivent aussi laisser passer les clics au cas où */
+        .main-time, .hundredths {
+             pointer-events: none; 
+        }
+
+        /* Style pour les grands nombres (MM:SS) */
+        .main-time {
+            font-size: 8vw; /* Grande taille relative à la largeur de la fenêtre */
+            font-weight: 900;
+            line-height: 1;
+            text-shadow: 0 0 5px rgba(0,0,0,0.1);
+            transition: color 0.1s;
+        }
+        
+        /* Style pour les centièmes de seconde (.CS) */
+        .hundredths {
+            font-size: 4vw; /* Plus petit que le temps principal */
+            font-weight: 900; /* CRITICAL: Même poids de police que main-time */
+            line-height: 1;
+            /* Ajout pour l'alignement visuel de la ligne de base */
+            transform: translateY(-6%); 
+        }
+
+        /* STYLES pour le message WIN */
+        .winner-overlay {
+            font-size: 4vw; /* Plus petit que le temps principal */
+            font-weight: 900; /* Changé à 900 pour correspondre au chronomètre */
+            line-height: 1;
+            text-shadow: 0 0 5px rgba(0,0,0,0.2); 
+            z-index: 15;
+            pointer-events: none;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            position: absolute; /* Positionnement absolu dans la zone parent */
+            top: 15%; /* Beaucoup plus haut */
+            left: 50%;
+            transform: translateX(-50%);
+            /* Opacity: 0.9 supprimé pour une couleur pleine et non-transparente */
+        }
+
+        /* Les zones des joueurs doivent occuper l'espace vertical disponible */
+        .player-zone {
+            flex-grow: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.3s, transform 0.1s, box-shadow 0.2s;
+            cursor: pointer;
+            user-select: none;
+            touch-action: manipulation;
+            width: 100%;
+            height: 50%;
+            position: relative; /* Nécessaire pour le z-index et l'indicateur de start/winner */
+            z-index: 10; 
+        }
+
+        /* Styles spécifiques pour le joueur 1 (en haut, couleur sombre) */
+        #player1-zone {
+            background-color: #1e293b; /* Slate-800 */
+            color: white;
+            /* Rotation pour l'affichage de l'adversaire */
+            transform: rotate(180deg);
+        }
+
+        /* Styles spécifiques pour le joueur 2 (en bas, couleur claire) */
+        #player2-zone {
+            background-color: #f1f5f9; /* Slate-100 */
+            color: #1e293b;
+        }
+
+        /* Effet de pression sur la zone active */
+        .player-zone:active {
+            filter: brightness(0.9);
+        }
+
+        /* Style pour l'input de temps (grand sur mobile) */
+        #minutes-input, #seconds-input {
+            appearance: none;
+            -moz-appearance: textfield;
+        }
+        #minutes-input::-webkit-inner-spin-button, 
+        #minutes-input::-webkit-outer-spin-button,
+        #seconds-input::-webkit-inner-spin-button, 
+        #seconds-input::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+
+    <!-- Zone du Joueur 1 (Tournée pour l'adversaire) -->
+    <div id="player1-zone" class="player-zone" onclick="switchPlayer(1)">
+        <!-- Message WIN -->
+        <div id="winner-overlay-1" class="winner-overlay hidden">WIN</div>
+        <!-- L'affichage sera généré par innerHTML -->
+        <span id="time1" class="clock-display">
+            <span class="main-time">05:00</span>
+            <span class="hundredths">.00</span>
+        </span>
+    </div>
+
+    <!-- Contrôles Centraux -->
+    <div id="controls" class="absolute inset-0 flex items-center justify-center pointer-events-none">
+        
+        <!-- Bouton Démarrer/Pause/Gagnant (Initiallement caché, n'apparaît qu'en Pause/Fin) -->
+        <button id="main-button"
+                onclick="event.stopPropagation(); startStop()"
+                class="pointer-events-auto bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-full shadow-lg transition duration-200 text-base md:text-xl z-20 hidden">
+            Pause
+        </button>
+
+        <!-- Bouton de Classement Elo (Nouveau) -->
+        <button id="elo-button"
+                onclick="window.location.href='classement-elo.html'"
+                class="pointer-events-auto absolute top-4 right-4 bg-gray-300 hover:bg-gray-400 text-gray-800 p-3 rounded-full shadow-lg transition duration-200 z-20">
+            <!-- Icône de flèche droite SVG -->
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5">
+                <path d="M5 12h14M12 5l7 7-7 7"/>
+            </svg>
+        </button>
+
+        <!-- Bouton de Réglages (Engrenage) -->
+        <button id="settings-button"
+                onclick="event.stopPropagation(); toggleSettings(true)"
+                class="pointer-events-auto absolute bottom-4 left-4 bg-gray-300 hover:bg-gray-400 text-gray-800 p-3 rounded-full shadow-lg transition duration-200 z-20">
+            <!-- Icône d'engrenage SVG -->
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+        </button>
+
+        <!-- Bouton de Réinitialisation (Petit et discret) -->
+        <button id="reset-button"
+                onclick="event.stopPropagation(); resetGame()"
+                class="pointer-events-auto absolute bottom-4 right-4 bg-gray-300 hover:bg-gray-400 text-gray-800 text-sm font-semibold py-2 px-3 rounded-lg shadow transition duration-200 z-20 hidden">
+            Réinitialiser
+        </button>
+    </div>
+
+    <!-- Zone du Joueur 2 -->
+    <div id="player2-zone" class="player-zone" onclick="switchPlayer(2)">
+        <!-- Message WIN -->
+        <div id="winner-overlay-2" class="winner-overlay hidden">WIN</div>
+        <!-- L'affichage sera généré par innerHTML -->
+        <span id="time2" class="clock-display">
+            <span class="main-time">05:00</span>
+            <span class="hundredths">.00</span>
+        </span>
+        
+        <!-- L'indicateur de démarrage a été supprimé. -->
+    </div>
+
+    <!-- MODALE DE RÉGLAGES -->
+    <div id="settings-modal" class="fixed inset-0 bg-black bg-opacity-70 z-30 hidden flex items-center justify-center p-4" onclick="toggleSettings(false, event)">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 space-y-6 md:space-y-8" onclick="event.stopPropagation()">
+            <h2 class="text-2xl font-bold text-gray-800 border-b pb-2">Réglages de l'Horloge</h2>
+            
+            <!-- Choix du Temps Initial (Mis à jour pour Minutes:Secondes) -->
+            <div class="space-y-2">
+                <label for="minutes-input" class="text-lg font-semibold text-gray-700 block text-center">Temps initial (Minutes:Secondes)</label>
+                <div class="flex items-center space-x-2">
+                    <!-- Input Minutes -->
+                    <input type="number" id="minutes-input" min="0" max="180" value="5"
+                           class="w-1/2 text-center text-4xl font-extrabold p-3 border-2 border-indigo-400 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition">
+                    <span class="text-4xl font-extrabold text-gray-500">:</span>
+                    <!-- Input Secondes -->
+                    <input type="number" id="seconds-input" min="0" max="59" value="0"
+                           class="w-1/2 text-center text-4xl font-extrabold p-3 border-2 border-indigo-400 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition">
+                </div>
+            </div>
+
+            <!-- Choix de l'Incrément -->
+            <div class="space-y-3">
+                <label class="text-lg font-semibold text-gray-700 block">Incrément par coup (Secondes)</label>
+                
+                <div class="flex flex-wrap gap-2 md:gap-4 justify-center">
+                    <!-- Bouton +0 -->
+                    <button data-increment="0" class="inc-btn bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-full transition duration-150">
+                        +0s
+                    </button>
+                    <!-- Bouton +2 -->
+                    <button data-increment="2" class="inc-btn bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-full transition duration-150">
+                        +2s
+                    </button>
+                    <!-- Bouton +5 -->
+                    <button data-increment="5" class="inc-btn bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-full transition duration-150">
+                        +5s
+                    </button>
+                    <!-- Input Personnalisé -->
+                    <input type="number" id="custom-increment-input" min="0" max="60" placeholder="+ Perso"
+                           class="w-24 text-center font-medium p-2 border border-gray-300 rounded-full focus:ring-indigo-500 focus:border-indigo-500 transition text-gray-800">
+                </div>
+                
+                <p id="current-increment-display" class="text-center text-sm text-indigo-600 font-medium pt-2">
+                    Incrément sélectionné : +0 secondes
+                </p>
+            </div>
+            
+            <!-- Bouton Appliquer et Fermer -->
+            <button onclick="applySettings()"
+                    class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg shadow-md transition duration-200 text-lg">
+                Appliquer et Réinitialiser
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- Configuration initiale ---
+        // Temps initial est maintenant stocké en secondes
+        let initialTimeTotalSeconds = 300; // 5 minutes par défaut (5 * 60)
+        let incrementSeconds = 0; // Incrément par défaut en secondes
+        const timeLimitMs = 10; // Intervalle de 10ms pour afficher les centièmes
+
+        // --- Variables d'état du jeu ---
+        let time1 = initialTimeTotalSeconds;
+        let time2 = initialTimeTotalSeconds;
+        let isRunning = false; // Le jeu est-il en session (démarré ou en pause) ?
+        let isTicking = false; // Le chronomètre est-il en cours de décompte ?
+        let currentPlayer = 0; // 0: Prêt/Arrêté, 1: Joueur 1 (Haut), 2: Joueur 2 (Bas)
+        let winnerPlayer = 0; // 0: Pas de gagnant, 1: P1 gagne, 2: P2 gagne
+        let timerInterval;
+
+        // --- Références DOM ---
+        const time1El = document.getElementById('time1');
+        const time2El = document.getElementById('time2');
+        const player1ZoneEl = document.getElementById('player1-zone');
+        const player2ZoneEl = document.getElementById('player2-zone');
+        const mainButtonEl = document.getElementById('main-button');
+        const resetButtonEl = document.getElementById('reset-button');
+        const settingsModalEl = document.getElementById('settings-modal');
+        // Nouveaux éléments pour les réglages de temps (Minutes et Secondes)
+        const minutesInputEl = document.getElementById('minutes-input');
+        const secondsInputEl = document.getElementById('seconds-input');
+        const incrementButtons = document.querySelectorAll('.inc-btn');
+        const customIncrementInput = document.getElementById('custom-increment-input');
+        const currentIncrementDisplay = document.getElementById('current-increment-display');
+        // Nouveaux éléments pour l'affichage du gagnant
+        const winnerOverlay1El = document.getElementById('winner-overlay-1');
+        const winnerOverlay2El = document.getElementById('winner-overlay-2');
+        
+        // --- Fonctions Utilitaires ---
+
+        // Formate les secondes en MM:SS et centièmes de seconde (.CS)
+        function formatTime(totalSeconds) {
+            if (totalSeconds < 0) totalSeconds = 0;
+
+            // Utilise les millisecondes pour une meilleure précision d'affichage
+            const totalMs = Math.max(0, Math.round(totalSeconds * 1000));
+            
+            const minutes = Math.floor(totalMs / 60000);
+            const seconds = Math.floor((totalMs % 60000) / 1000);
+            
+            // Calcule les centièmes (les deux premiers chiffres de la partie décimale)
+            const hundredths = Math.floor((totalMs % 1000) / 10); 
+
+            const mmss = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+            // Affiche les centièmes sur deux chiffres
+            const cs = `${String(hundredths).padStart(2, '0')}`; 
+
+            return { mmss, cs };
+        }
+
+        // --- Logique de l'Horloge ---
+
+        // Met à jour l'affichage de l'horloge pour un joueur
+        function updateDisplay(player) {
+            const time = player === 1 ? time1 : time2;
+            const element = player === 1 ? time1El : time2El;
+            const zone = player === 1 ? player1ZoneEl : player2ZoneEl;
+            const winnerOverlayEl = player === 1 ? winnerOverlay1El : winnerOverlay2El;
+
+
+            // Nouvelle logique de formatage pour MM:SS et .CS
+            const { mmss, cs } = formatTime(time);
+
+            // Mise à jour de l'affichage avec le formatage HTML
+            element.innerHTML = `
+                <span class="main-time">${mmss}</span>
+                <span class="hundredths">.${cs}</span>
+            `;
+
+            // Récupère la couleur de base pour gérer le changement de couleur d'alerte
+            const baseColor1 = '#1e293b'; // Slate-800
+            const baseColor2 = '#f1f5f9'; // Slate-100
+            const alertColor = '#ef4444'; // Rouge-500
+
+            // Gère l'état visuel (ombre, curseur, couleur du fond)
+            if (currentPlayer === player && isTicking) {
+                zone.classList.add('shadow-2xl'); // Garder l'ombre pour l'effet "actif"
+                zone.style.cursor = 'pointer';
+            } else {
+                zone.classList.remove('shadow-2xl');
+                zone.style.cursor = 'default';
+            }
+
+            // Gère la couleur d'alerte de temps bas
+            // L'alerte se déclenche lorsque le temps restant est inférieur à 10.00 secondes
+            const isLowTime = currentPlayer === player && isTicking && time < 10 && time > 0;
+            
+            zone.style.backgroundColor = isLowTime 
+                ? alertColor
+                : (player === 1 ? baseColor1 : baseColor2);
+            
+            // La méthode la plus simple est d'utiliser le style 'color' de l'élément parent 'zone' qui est bien géré
+            if (player === 2) {
+                const textColor = isLowTime ? 'white' : baseColor1;
+                if (zone) zone.style.color = textColor;
+                // Le message vainqueur de P2 prend la couleur du texte normal de P2
+                winnerOverlay2El.style.color = baseColor1; 
+            } else {
+                 // Pour P1, le fond est toujours sombre, le texte doit rester blanc
+                 if (zone) zone.style.color = 'white';
+                 // Le message vainqueur de P1 prend la couleur du texte normal de P1
+                 winnerOverlay1El.style.color = 'white'; 
+            }
+
+            // Gère l'affichage du message WIN
+            if (winnerPlayer === player) {
+                winnerOverlayEl.classList.remove('hidden');
+            } else {
+                winnerOverlayEl.classList.add('hidden');
+            }
+        }
+
+        // Fonction principale de décompte
+        function tick() {
+            if (!isTicking) return;
+
+            // Décrément en secondes (10ms / 1000 = 0.01s)
+            const timeDecrement = timeLimitMs / 1000;
+
+            if (currentPlayer === 1) {
+                time1 -= timeDecrement;
+                if (time1 <= 0) {
+                    time1 = 0;
+                    gameOver(1);
+                }
+            } else if (currentPlayer === 2) {
+                time2 -= timeDecrement;
+                if (time2 <= 0) {
+                    time2 = 0;
+                    gameOver(2);
+                }
+            }
+
+            updateDisplay(1);
+            updateDisplay(2);
+        }
+
+        // Change de joueur et applique l'incrément
+        function switchPlayer(clickedPlayer) {
+            console.log(`[Switch] Clic sur P${clickedPlayer}. État: P${currentPlayer}, Ticking: ${isTicking}, Running: ${isRunning}`);
+            
+            const isGameOver = time1 <= 0 || time2 <= 0;
+            if (isGameOver) return;
+
+            // LOGIQUE DE DÉMARRAGE SIMPLIFIÉE :
+            // Si le jeu n'a pas encore démarré (c'est le premier clic)
+            if (!isRunning) {
+                isRunning = true; // Le jeu est lancé
+                isTicking = true; // Le chronomètre démarre
+                
+                // Si P1 clique, P2 est le premier à jouer (P1 a déjà fait son coup), donc le chrono de P2 se lance.
+                // Si P2 clique, P1 est le premier à jouer (P2 a déjà fait son coup), donc le chrono de P1 se lance.
+                currentPlayer = clickedPlayer === 1 ? 2 : 1; 
+
+                timerInterval = setInterval(tick, timeLimitMs);
+                console.log(`[Switch] Démarrage initial par P${clickedPlayer}. Horloge P${currentPlayer} démarrée.`);
+            }
+            // Logique de COUP NORMAL : Horloge en cours de décompte
+            else if (isTicking) {
+                // Seul le joueur actif peut cliquer pour passer la main
+                if (clickedPlayer === currentPlayer) {
+                    
+                    if (currentPlayer === 1) {
+                        time1 += incrementSeconds;
+                        currentPlayer = 2; // P1 vient de jouer, c'est au tour de P2
+                        console.log(`[Switch] P1 joue. Nouveau Joueur: P${currentPlayer}.`);
+                    } else { // currentPlayer === 2
+                        time2 += incrementSeconds;
+                        currentPlayer = 1; // P2 vient de jouer, c'est au tour de P1
+                        console.log(`[Switch] P2 joue. Nouveau Joueur: P${currentPlayer}.`);
+                    }
+                } else {
+                    console.log(`[Switch] Rejet: Clic sur P${clickedPlayer}, mais P${currentPlayer} est actif.`);
+                    return;
+                }
+            }
+            // Si en pause, on ignore le clic sur la zone
+            else if (isRunning && !isTicking) {
+                 console.log("[Switch] Rejet: Horloge en pause, veuillez utiliser le bouton 'Reprendre'.");
+                 return;
+            }
+
+            updateVisuals();
+        }
+
+        // Démarre, met en pause ou initialise la partie (Maintenant seulement Pause/Reprendre)
+        function startStop() {
+            // Empêche la pause si le jeu n'est pas actif ou est terminé
+            if (!isRunning || time1 <= 0 || time2 <= 0) return; 
+
+            // Case 1: L'horloge compte activement -> PAUSE
+            if (isTicking) {
+                clearInterval(timerInterval);
+                isTicking = false;
+                console.log(`[StartStop] Pause. Joueur en attente: ${currentPlayer}`);
+            } 
+            // Case 2: Le jeu est PAUSE -> REPRENDRE
+            else {
+                isTicking = true;
+                timerInterval = setInterval(tick, timeLimitMs);
+                console.log(`[StartStop] Reprise de la partie. Joueur actif: ${currentPlayer}`);
+            }
+
+            // Affiche/Masque les boutons de réglage/reset en fonction de l'état (caché si isTicking=true)
+            if (isTicking) {
+                document.getElementById('settings-button').classList.add('hidden'); 
+                resetButtonEl.classList.add('hidden');
+                document.getElementById('elo-button').classList.add('hidden'); // Cache le bouton ELO
+            } else {
+                document.getElementById('settings-button').classList.remove('hidden'); 
+                resetButtonEl.classList.remove('hidden');
+                document.getElementById('elo-button').classList.remove('hidden'); // Montre le bouton ELO
+            }
+
+            updateVisuals();
+        }
+
+        // Gère la fin de partie
+        function gameOver(loser) {
+            isRunning = false;
+            isTicking = false;
+            clearInterval(timerInterval);
+            currentPlayer = 0;
+            console.log(`[GameOver] Fin de partie. Joueur ${loser} a perdu au temps.`);
+
+            const winner = loser === 1 ? 2 : 1;
+            winnerPlayer = winner; // Définit le gagnant pour l'affichage
+
+            // Mise à jour du bouton central (texte générique pour Nouvelle Partie/Fin de Partie)
+            mainButtonEl.textContent = `Fin de Partie`; 
+            mainButtonEl.classList.remove('bg-indigo-600', 'hover:bg-indigo-700', 'bg-green-600', 'hover:bg-green-700');
+            mainButtonEl.classList.add('bg-gray-600', 'hover:bg-gray-700'); 
+            
+            resetButtonEl.classList.remove('hidden');
+            document.getElementById('settings-button').classList.remove('hidden'); 
+            document.getElementById('elo-button').classList.remove('hidden'); // Montre le bouton ELO
+
+            updateDisplay(1);
+            updateDisplay(2);
+            updateVisuals();
+        }
+
+        // Réinitialise l'horloge
+        function resetGame() {
+            clearInterval(timerInterval);
+            // Utilise initialTimeTotalSeconds pour les deux joueurs
+            time1 = initialTimeTotalSeconds;
+            time2 = initialTimeTotalSeconds;
+            isRunning = false; // Réinitialise l'état de la session
+            isTicking = false; // Chrono à l'arrêt
+            currentPlayer = 0;
+            winnerPlayer = 0; // Réinitialise le gagnant
+            console.log("[Reset] Jeu réinitialisé.");
+
+            // Rétablit l'interface
+            mainButtonEl.classList.remove('bg-gray-600', 'hover:bg-gray-700', 'bg-green-600');
+            mainButtonEl.classList.add('bg-indigo-600');
+            mainButtonEl.classList.add('hidden'); // Caché au début
+            
+            resetButtonEl.classList.add('hidden');
+            document.getElementById('settings-button').classList.remove('hidden'); 
+            document.getElementById('elo-button').classList.remove('hidden'); // Montre le bouton ELO
+
+            updateVisuals();
+        }
+
+        // Met à jour tous les éléments visuels
+        function updateVisuals() {
+            updateDisplay(1);
+            updateDisplay(2);
+            
+            // État 1: Prêt à démarrer (Pas en cours, temps > 0)
+            const isReadyForFirstMove = !isRunning && time1 > 0 && time2 > 0; 
+            // État 2: En Pause (En cours, non décompte, temps > 0)
+            const isPaused = isRunning && !isTicking && time1 > 0 && time2 > 0;
+            // État 3: Game Over
+            const isGameOver = time1 <= 0 || time2 <= 0;
+
+            // Contrôle de la visibilité du bouton central : Visible après le premier coup ou fin de partie
+            if (isReadyForFirstMove) {
+                mainButtonEl.classList.add('hidden'); // Caché avant le premier coup
+            } else if (isRunning || isGameOver) {
+                mainButtonEl.classList.remove('hidden'); // Visible si le jeu a commencé (running, paused, or game over)
+            }
+            
+            // Contrôle du texte et des couleurs du bouton central
+            if (isGameOver) {
+                // Le texte et la couleur grise sont gérés dans gameOver()
+            } else if (isTicking) {
+                mainButtonEl.textContent = 'Pause';
+                // Bouton Pause (Gris)
+                mainButtonEl.classList.remove('bg-indigo-600', 'hover:bg-indigo-700', 'bg-green-600', 'hover:bg-green-700');
+                mainButtonEl.classList.add('bg-gray-600', 'hover:bg-gray-700');
+            } else if (isPaused) {
+                mainButtonEl.textContent = 'Reprendre';
+                // Bouton Reprendre (Indigo)
+                mainButtonEl.classList.remove('bg-gray-600', 'hover:bg-gray-700', 'bg-green-600', 'hover:bg-green-700');
+                mainButtonEl.classList.add('bg-indigo-600', 'hover:bg-indigo-700');
+            }
+
+            // Contrôle de la visibilité des boutons de contrôle (Réglages et ELO)
+            const isControlVisible = !isTicking;
+            document.getElementById('settings-button').classList.toggle('hidden', !isControlVisible);
+            resetButtonEl.classList.toggle('hidden', !isControlVisible);
+            document.getElementById('elo-button').classList.toggle('hidden', !isControlVisible);
+        }
+
+        // --- Logique des Réglages (Mode Édition) ---
+
+        // Ouvre ou ferme la modale de réglages
+        function toggleSettings(show, event) {
+            if (isRunning) return; // Ne pas ouvrir si le jeu est en cours
+            
+            if (show) {
+                // Calcule les minutes et secondes à partir du temps total en secondes
+                const minutes = Math.floor(initialTimeTotalSeconds / 60);
+                const seconds = Math.floor(initialTimeTotalSeconds % 60);
+
+                // Pré-remplit les inputs avec les valeurs actuelles
+                minutesInputEl.value = minutes;
+                secondsInputEl.value = seconds;
+                
+                customIncrementInput.value = incrementSeconds;
+                // Met à jour l'affichage de l'incrément sélectionné
+                updateIncrementSelection(incrementSeconds);
+                settingsModalEl.classList.remove('hidden');
+            } else if (!event || event.target === settingsModalEl) {
+                // Ferme si:
+                // 1. L'événement est undefined (appel programmatique depuis applySettings)
+                // 2. Ou si l'utilisateur clique sur la modale (event.target est la modale elle-même)
+                settingsModalEl.classList.add('hidden');
+            }
+        }
+
+        // Met à jour l'état visuel des boutons d'incrément
+        function updateIncrementSelection(selectedIncrement) {
+            incrementButtons.forEach(btn => {
+                const inc = parseInt(btn.dataset.increment);
+                if (inc === selectedIncrement) {
+                    btn.classList.add('bg-indigo-600', 'text-white');
+                    btn.classList.remove('bg-gray-200', 'text-gray-800');
+                } else {
+                    btn.classList.remove('bg-indigo-600', 'text-white');
+                    btn.classList.add('bg-gray-200', 'text-gray-800');
+                }
+            });
+
+            customIncrementInput.classList.remove('bg-indigo-600', 'text-white', 'font-bold');
+            if (![0, 2, 5].includes(selectedIncrement)) {
+                customIncrementInput.classList.add('bg-indigo-600', 'text-white', 'font-bold');
+            }
+
+            currentIncrementDisplay.textContent = `Incrément sélectionné : +${selectedIncrement} secondes`;
+        }
+
+        // Gestionnaire de clic pour les boutons d'incrément prédéfinis
+        incrementButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const inc = parseInt(btn.dataset.increment);
+                // Met à jour l'incrément global pour les réglages temporairement
+                incrementSeconds = inc; 
+                customIncrementInput.value = ''; // Vide l'input personnalisé
+                updateIncrementSelection(inc);
+            });
+        });
+
+        // Gestionnaire d'input pour l'incrément personnalisé
+        customIncrementInput.addEventListener('input', () => {
+            let inc = parseInt(customIncrementInput.value);
+            if (isNaN(inc) || inc < 0) inc = 0;
+            if (inc > 60) inc = 60; // Limite à 60s
+            customIncrementInput.value = inc;
+
+            incrementSeconds = inc;
+            updateIncrementSelection(inc);
+        });
+
+        // Applique les réglages et réinitialise le jeu
+        function applySettings() {
+            let newMinutes = parseInt(minutesInputEl.value) || 0;
+            let newSeconds = parseInt(secondsInputEl.value) || 0;
+            let newIncrementSeconds = parseInt(incrementSeconds);
+
+            // Validation (minutes peuvent être 0, secondes max 59)
+            if (isNaN(newMinutes) || newMinutes < 0) newMinutes = 0;
+            if (newMinutes > 180) newMinutes = 180;
+            if (isNaN(newSeconds) || newSeconds < 0) newSeconds = 0;
+            if (newSeconds > 59) newSeconds = 59;
+            
+            // Calcul du nouveau temps total en secondes
+            const newTotalSeconds = (newMinutes * 60) + newSeconds;
+            
+            // Assure qu'il y a au moins 1 seconde de temps de jeu
+            if (newTotalSeconds === 0) {
+                 // Force 1 minute si le temps est 00:00 pour la jouabilité
+                 initialTimeTotalSeconds = 60; 
+            } else {
+                 initialTimeTotalSeconds = newTotalSeconds;
+            }
+
+            if (isNaN(newIncrementSeconds) || newIncrementSeconds < 0) newIncrementSeconds = 0;
+
+            incrementSeconds = newIncrementSeconds;
+            
+            // Mise à jour de l'affichage des inputs si on a forcé 1 minute
+            if (newTotalSeconds === 0) {
+                 minutesInputEl.value = 1;
+                 secondsInputEl.value = 0;
+            }
+
+            console.log(`[Settings] Temps initial: ${Math.floor(initialTimeTotalSeconds / 60)}:${String(initialTimeTotalSeconds % 60).padStart(2, '0')} (Incrément: ${incrementSeconds} s)`);
+
+
+            toggleSettings(false); // Ferme la modale
+            resetGame(); // Applique les nouveaux réglages en réinitialisant
+        }
+
+        // Initialisation au chargement
+        window.onload = () => {
+            // Initialise l'affichage avec les valeurs par défaut
+            resetGame(); 
+        }
+    </script>
+</body>
+</html>
