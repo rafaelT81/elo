@@ -172,6 +172,13 @@
             -webkit-appearance: none;
             margin: 0;
         }
+        /* Style pour l'overlay de pause */
+        #pause-overlay p {
+            font-size: 15vw;
+            @media (min-width: 640px) {
+                font-size: 8vw;
+            }
+        }
     </style>
 </head>
 <body class="bg-gray-50">
@@ -191,6 +198,14 @@
     <!-- Contrôles Centraux -->
     <div id="controls" class="absolute inset-0 pointer-events-none">
         
+        <!-- NOUVEAU: Overlay de Pause -->
+        <div id="pause-overlay" class="absolute inset-0 z-15 hidden flex items-center justify-center pointer-events-none">
+            <p class="text-gray-400 font-black opacity-70 tracking-widest uppercase" 
+               style="line-height: 1;">
+                PAUSE
+            </p>
+        </div>
+
         <!-- Bouton Démarrer/Pause/Verrou (Haut à Gauche) -->
         <button id="main-button"
                 onclick="event.stopPropagation(); handleMainButtonClick()"
@@ -202,13 +217,13 @@
             </svg>
         </button>
 
-        <!-- Bouton de Classement Elo (Retour) -->
+        <!-- Bouton de Retour (Flèche DROITE - Mise à jour) -->
         <button id="elo-button"
-                onclick="window.location.href='index.html'"
+                onclick="window.location.href = 'index.html';" 
                 class="pointer-events-auto absolute top-4 right-4 bg-gray-300 hover:bg-gray-400 text-gray-800 p-4 rounded-full shadow-lg transition duration-200 z-20 hidden">
-            <!-- Icône de flèche gauche SVG (Retour) -->
+            <!-- Icône de flèche DROITE (Mise à jour) -->
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6">
-                <path d="M19 12H5M12 19l-7-7 7-7"/>
+                <polyline points="9 18 15 12 9 6"/>
             </svg>
         </button>
 
@@ -223,11 +238,11 @@
             </svg>
         </button>
 
-        <!-- Bouton de Réinitialisation -->
+        <!-- Bouton de Réinitialisation (TEXTE MAINTENANT) -->
         <button id="reset-button"
                 onclick="event.stopPropagation(); resetGame()"
-                class="pointer-events-auto absolute bottom-4 right-4 bg-gray-300 hover:bg-gray-400 text-gray-800 text-base font-semibold py-3 px-4 rounded-lg shadow transition duration-200 z-20 hidden">
-            Réinitialiser
+                class="pointer-events-auto absolute bottom-4 right-4 bg-gray-300 hover:bg-gray-400 text-gray-800 py-3 px-5 rounded-full shadow-lg transition duration-200 z-20 hidden font-bold text-xs">
+            RÉINITIALISER
         </button>
     </div>
 
@@ -298,31 +313,45 @@
     </div>
 
     <script>
+        // --- Constantes pour localStorage ---
+        const LS_INITIAL_TIME = 'chessClockInitialTime';
+        const LS_INCREMENT = 'chessClockIncrement';
+        const LS_STATE = 'chessClockState';
+
         // --- Configuration initiale ---
-        let initialTimeTotalSeconds = 300; 
-        let incrementSeconds = 0; 
+        // Les valeurs par défaut sont définies ici et chargées si localStorage est vide
+        const DEFAULT_TIME_SECONDS = 300; 
+        const DEFAULT_INCREMENT_SECONDS = 0;
+        
+        let initialTimeTotalSeconds = DEFAULT_TIME_SECONDS; 
+        let incrementSeconds = DEFAULT_INCREMENT_SECONDS; 
         const timeLimitMs = 10; 
         const UNLOCK_DURATION = 1000; 
 
         // --- Variables d'état du jeu ---
         let time1 = initialTimeTotalSeconds;
         let time2 = initialTimeTotalSeconds;
-        let isRunning = false; // Indique si le jeu a démarré (Play/Pause/Lock button visible)
-        let isTicking = false; // Indique si le temps est en train de défiler
-        let isButtonLocked = true; // Mobile seulement: Indique si le bouton central est verrouillé
-        let currentPlayer = 0; // 1 ou 2
-        let winnerPlayer = 0; // 0, 1 ou 2
+        let isRunning = false; 
+        let isTicking = false; 
+        let isButtonLocked = true; 
+        let currentPlayer = 0; 
+        let winnerPlayer = 0; 
         let timerInterval;
         let lockTimeout; 
 
-        // --- Détection de mode (NOUVEAU) ---
+        // --- Détection de mode (CRITIQUE pour le responsive) ---
         let isDesktopMode = window.matchMedia('(min-width: 640px)').matches;
-        // Écoute des changements de taille d'écran
+        // Flag pour savoir si l'état a été restauré (utile dans le listener de redimensionnement)
+        let stateRestoredOnLoad = false; 
+
+        // Écoute des changements de taille d'écran (pour le responsive, pas pour la restauration)
         window.matchMedia('(min-width: 640px)').addEventListener('change', (e) => {
             isDesktopMode = e.matches;
-            // On réinitialise pour appliquer les nouveaux réglages visuels et de jeu
-            resetGame(); 
+            // On ne réinitialise PAS le jeu ici, on se contente de mettre à jour les visuels.
+            // La restauration sera gérée par le rechargement forcé de l'iframe si nécessaire.
+            setTimeout(updateVisuals, 50); // Petit délai pour laisser le temps au CSS de se stabiliser
         });
+
 
         // --- Nouvelles définitions d'icônes SVG pour le bouton principal ---
         const ICON_LOCK = `
@@ -342,12 +371,6 @@
                 <polygon points="5 3 19 12 5 21 5 3"/>
             </svg>`;
         
-        // Icône de Retour (pour le bouton ELO, maintenant 'Retour')
-        const ICON_BACK = `
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6">
-                <path d="M19 12H5M12 19l-7-7 7-7"/>
-            </svg>`;
-
         // --- Références DOM ---
         const time1El = document.getElementById('time1');
         const time2El = document.getElementById('time2');
@@ -357,7 +380,7 @@
         const resetButtonEl = document.getElementById('reset-button');
         const settingsModalEl = document.getElementById('settings-modal');
         const settingsButtonEl = document.getElementById('settings-button');
-        const eloButtonEl = document.getElementById('elo-button'); // Maintenant le bouton "Retour"
+        const eloButtonEl = document.getElementById('elo-button'); // Bouton "Retour"
         const minutesInputEl = document.getElementById('minutes-input');
         const secondsInputEl = document.getElementById('seconds-input');
         const incrementButtons = document.querySelectorAll('.inc-btn');
@@ -365,12 +388,93 @@
         const currentIncrementDisplay = document.getElementById('current-increment-display');
         const winnerOverlay1El = document.getElementById('winner-overlay-1');
         const winnerOverlay2El = document.getElementById('winner-overlay-2');
+        const pauseOverlayEl = document.getElementById('pause-overlay');
+        
+        // --- Logique de Persistance (localStorage) ---
+        
+        // Sauvegarde l'état actuel du jeu dans localStorage
+        function saveGameState() {
+            try {
+                const state = {
+                    time1: time1,
+                    time2: time2,
+                    isRunning: isRunning,
+                    isTicking: isTicking,
+                    currentPlayer: currentPlayer,
+                    winnerPlayer: winnerPlayer,
+                    initialTimeTotalSeconds: initialTimeTotalSeconds,
+                    incrementSeconds: incrementSeconds
+                };
+                localStorage.setItem(LS_STATE, JSON.stringify(state));
+                console.log("[LS] État du jeu sauvegardé.");
+            } catch (error) {
+                console.error("Erreur lors de la sauvegarde de l'état du jeu:", error);
+            }
+        }
+        
+        // Charge l'état du jeu depuis localStorage
+        function loadGameState() {
+            // 1. Charger les réglages de temps
+            try {
+                const storedTime = localStorage.getItem(LS_INITIAL_TIME);
+                if (storedTime) {
+                    initialTimeTotalSeconds = parseFloat(storedTime);
+                }
+                const storedIncrement = localStorage.getItem(LS_INCREMENT);
+                if (storedIncrement) {
+                    incrementSeconds = parseInt(storedIncrement);
+                }
+            } catch (error) {
+                 console.error("Erreur lors du chargement des réglages:", error);
+            }
+
+            // 2. Charger l'état de la partie si elle était en cours
+            try {
+                const storedState = localStorage.getItem(LS_STATE);
+                if (storedState) {
+                    const state = JSON.parse(storedState);
+
+                    // Vérifie si l'état sauvegardé est une partie non terminée
+                    if (state.isRunning || state.isTicking || state.winnerPlayer === 0 && (state.time1 < state.initialTimeTotalSeconds || state.time2 < state.initialTimeTotalSeconds)) { 
+                        time1 = state.time1;
+                        time2 = state.time2;
+                        isRunning = state.isRunning;
+                        isTicking = state.isTicking;
+                        currentPlayer = state.currentPlayer;
+                        winnerPlayer = state.winnerPlayer;
+                        
+                        // Mise à jour des réglages persistants si l'état est valide
+                        initialTimeTotalSeconds = state.initialTimeTotalSeconds;
+                        incrementSeconds = state.incrementSeconds;
+                        
+                        console.log("[LS] État du jeu restauré.");
+                        
+                        return true; // État restauré avec succès
+                    }
+                }
+            } catch (error) {
+                console.error("Erreur lors de la restauration de l'état du jeu:", error);
+            }
+            return false;
+        }
+
+        // Sauvegarde des réglages indépendamment de l'état du jeu
+        function saveSettings() {
+             try {
+                localStorage.setItem(LS_INITIAL_TIME, initialTimeTotalSeconds.toString());
+                localStorage.setItem(LS_INCREMENT, incrementSeconds.toString());
+                console.log("[LS] Réglages sauvegardés.");
+             } catch (error) {
+                console.error("Erreur lors de la sauvegarde des réglages:", error);
+             }
+        }
         
         // --- Fonctions Utilitaires ---
 
         function formatTime(totalSeconds) {
             if (totalSeconds < 0) totalSeconds = 0;
-            const totalMs = Math.max(0, Math.round(totalSeconds * 1000));
+            // Utilise Math.round pour minimiser l'erreur d'arrondi
+            const totalMs = Math.max(0, Math.round(totalSeconds * 1000)); 
             const minutes = Math.floor(totalMs / 60000);
             const seconds = Math.floor((totalMs % 60000) / 1000);
             const hundredths = Math.floor((totalMs % 1000) / 10); 
@@ -393,12 +497,12 @@
             console.log("[Verrou] Bouton déverrouillé pour 1 seconde.");
 
             lockTimeout = setTimeout(() => {
-                if (isRunning && winnerPlayer === 0) {
+                if (isRunning && winnerPlayer === 0 && !isTicking) { 
                     isButtonLocked = true;
                     updateVisuals();
                     console.log("[Verrou] Reverrouillage automatique.");
                 } else {
-                    console.log("[Verrou] Reverrouillage annulé (jeu arrêté).");
+                    console.log("[Verrou] Reverrouillage annulé (jeu arrêté ou en cours).");
                 }
             }, UNLOCK_DURATION);
         }
@@ -428,6 +532,7 @@
                     }
                 }
             }
+            saveGameState(); // Sauvegarde l'état après un changement (pause/reprise)
         }
 
 
@@ -452,23 +557,13 @@
                         <span class="hundredths">.${cs}</span>
                     `;
                 }
-            } else {
-                 // Si c'est la première fois ou si l'élément a été perdu, recréer l'ensemble
-                 element.innerHTML = `
-                    <div id="indicator${player}" class="active-indicator"></div>
-                    <span class="time-wrapper">
-                        <span class="main-time">${mmss}</span>
-                        <span class="hundredths">.${cs}</span>
-                    </span>
-                 `;
-            }
-
+            } 
 
             const baseColor1 = '#1e293b'; 
             const baseColor2 = '#f1f5f9'; 
             const alertColor = '#ef4444'; 
             
-            // Détermine si la zone du joueur est cliquable (uniquement si le temps défile)
+            // Détermine si le temps défile pour ce joueur (uniquement si le temps défile)
             const isTappable = currentPlayer === player && isTicking;
 
             // Détermine si le joueur est le joueur actuel (même en pause)
@@ -513,7 +608,7 @@
                 winnerOverlayEl.classList.add('hidden');
             }
 
-            // MISE À JOUR CRITIQUE : PASTILLE VISIBLE MÊME EN PAUSE
+            // PASTILLE VISIBLE MÊME EN PAUSE
             const currentIndicatorEl = document.getElementById(`indicator${player}`);
             if (currentIndicatorEl) {
                 currentIndicatorEl.classList.remove('active-p1-white', 'active-p2-dark');
@@ -549,6 +644,8 @@
 
             updateDisplay(1);
             updateDisplay(2);
+            // Sauvegarde à chaque tick pour assurer la persistance de l'état précis
+            saveGameState(); 
         }
 
         function switchPlayer(clickedPlayer) {
@@ -597,6 +694,7 @@
             }
             
             updateVisuals();
+            saveGameState(); // Sauvegarde après un coup
         }
         
         function handleSpacebarPress() {
@@ -645,6 +743,7 @@
             }
 
             updateVisuals();
+            saveGameState(); // Sauvegarde après une pause/reprise
         }
 
         function gameOver(loser) {
@@ -660,6 +759,7 @@
             updateDisplay(1);
             updateDisplay(2);
             updateVisuals();
+            localStorage.removeItem(LS_STATE); // Supprime l'état après la fin de la partie
         }
 
         function resetGame() {
@@ -669,11 +769,13 @@
             time2 = initialTimeTotalSeconds;
             isRunning = false; 
             isTicking = false; 
-            isButtonLocked = true; // Réinitialise l'état du cadenas à verrouillé
+            isButtonLocked = true; 
             currentPlayer = 0;
             winnerPlayer = 0; 
             console.log("[Reset] Jeu réinitialisé.");
             
+            localStorage.removeItem(LS_STATE); // S'assurer que tout état précédent est effacé
+
             updateVisuals();
         }
 
@@ -740,11 +842,13 @@
             
             settingsButtonEl.classList.toggle('hidden', !isControlVisible);
             resetButtonEl.classList.toggle('hidden', !isControlVisible);
+            eloButtonEl.classList.toggle('hidden', !isControlVisible); // Bouton Retour/ELO
             
-            // Le bouton ELO/Retour est toujours visible quand les autres contrôles le sont
-            eloButtonEl.classList.toggle('hidden', !isControlVisible);
-            eloButtonEl.innerHTML = ICON_BACK; // Assure que c'est l'icône de retour (flèche gauche)
-
+            // NOUVEAU: Affichage de l'overlay de pause
+            const isPaused = isRunning && !isTicking && winnerPlayer === 0;
+            if (pauseOverlayEl) {
+                pauseOverlayEl.classList.toggle('hidden', !isPaused);
+            }
         }
 
         // --- Logique des Réglages (Mode Édition) ---
@@ -836,7 +940,7 @@
 
             console.log(`[Settings] Temps initial: ${Math.floor(initialTimeTotalSeconds / 60)}:${String(initialTimeTotalSeconds % 60).padStart(2, '0')} (Incrément: ${incrementSeconds} s)`);
 
-
+            saveSettings(); // Sauvegarde les nouveaux réglages
             toggleSettings(false); 
             resetGame(); 
         }
@@ -856,9 +960,35 @@
 
 
         // Initialisation au chargement
-        window.onload = () => {
-            resetGame(); 
-        }
+        // CRITIQUE : Démarre la fonction de restauration au plus tôt possible.
+        (function initialize() {
+            // 1. Tente de restaurer l'état
+            stateRestoredOnLoad = loadGameState();
+            
+            // 2. Si non restauré (nouvelle partie ou partie terminée), on initialise avec les réglages chargés
+            if (!stateRestoredOnLoad) {
+                time1 = initialTimeTotalSeconds;
+                time2 = initialTimeTotalSeconds;
+            }
+            
+            // 3. Si le jeu était en cours au moment du rechargement, on redémarre l'intervalle
+            if (isTicking) {
+                 clearInterval(timerInterval);
+                 timerInterval = setInterval(tick, timeLimitMs);
+                 console.log("[Restore] Redémarrage du timer après restauration.");
+            }
+
+            // 4. Met à jour l'affichage initial
+            updateVisuals(); 
+            
+            // 5. Nettoie l'état sauvegardé si la restauration a réussi et que le jeu n'est pas terminé.
+            // On ne veut le nettoyer qu'APRÈS avoir redémarré le timer.
+            if (stateRestoredOnLoad && winnerPlayer === 0) {
+                localStorage.removeItem(LS_STATE);
+                console.log("[LS] État temporaire effacé après restauration réussie.");
+            }
+        })();
+
     </script>
 </body>
 </html>
