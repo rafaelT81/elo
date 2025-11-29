@@ -191,7 +191,7 @@
     <!-- Contrôles Centraux -->
     <div id="controls" class="absolute inset-0 pointer-events-none">
         
-        <!-- Bouton Démarrer/Pause/Gagnant (Haut à Gauche) -->
+        <!-- Bouton Démarrer/Pause/Verrou (Haut à Gauche) -->
         <button id="main-button"
                 onclick="event.stopPropagation(); handleMainButtonClick()"
                 class="pointer-events-auto absolute top-4 left-4 p-4 rounded-full shadow-lg transition duration-200 z-20 hidden backdrop-blur-sm">
@@ -202,20 +202,20 @@
             </svg>
         </button>
 
-        <!-- Bouton de Classement Elo -->
+        <!-- Bouton de Classement Elo (Retour) -->
         <button id="elo-button"
                 onclick="window.location.href='index.html'"
                 class="pointer-events-auto absolute top-4 right-4 bg-gray-300 hover:bg-gray-400 text-gray-800 p-4 rounded-full shadow-lg transition duration-200 z-20 hidden">
-            <!-- Icône de flèche droite SVG -->
+            <!-- Icône de flèche gauche SVG (Retour) -->
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6">
-                <path d="M5 12h14M12 5l7 7-7 7"/>
+                <path d="M19 12H5M12 19l-7-7 7-7"/>
             </svg>
         </button>
 
         <!-- Bouton de Réglages (Engrenage) -->
         <button id="settings-button"
                 onclick="event.stopPropagation(); toggleSettings(true)"
-                class="pointer-events-auto absolute bottom-4 left-4 bg-gray-300 hover:bg-gray-400 text-white p-4 rounded-full shadow-lg transition duration-200 z-20">
+                class="pointer-events-auto absolute bottom-4 left-4 bg-gray-300 hover:bg-gray-400 text-white p-4 rounded-full shadow-lg transition duration-200 z-20 hidden">
             <!-- Icône d'engrenage SVG -->
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6 text-gray-800">
                 <circle cx="12" cy="12" r="3" />
@@ -341,6 +341,12 @@
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6">
                 <polygon points="5 3 19 12 5 21 5 3"/>
             </svg>`;
+        
+        // Icône de Retour (pour le bouton ELO, maintenant 'Retour')
+        const ICON_BACK = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6">
+                <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>`;
 
         // --- Références DOM ---
         const time1El = document.getElementById('time1');
@@ -350,6 +356,8 @@
         const mainButtonEl = document.getElementById('main-button');
         const resetButtonEl = document.getElementById('reset-button');
         const settingsModalEl = document.getElementById('settings-modal');
+        const settingsButtonEl = document.getElementById('settings-button');
+        const eloButtonEl = document.getElementById('elo-button'); // Maintenant le bouton "Retour"
         const minutesInputEl = document.getElementById('minutes-input');
         const secondsInputEl = document.getElementById('seconds-input');
         const incrementButtons = document.querySelectorAll('.inc-btn');
@@ -433,14 +441,28 @@
 
             const { mmss, cs } = formatTime(time);
 
-            const timeHTML = `
-                <div id="indicator${player}" class="active-indicator"></div>
-                <span class="time-wrapper">
-                    <span class="main-time">${mmss}</span>
-                    <span class="hundredths">.${cs}</span>
-                </span>
-            `;
-            element.innerHTML = timeHTML; 
+            // Mise à jour de l'affichage du temps (maintenant dans une structure pour conserver l'indicateur)
+            const indicatorEl = document.getElementById(`indicator${player}`);
+            if (indicatorEl) {
+                // On met à jour seulement le temps (les spans main-time et hundredths sont les enfants)
+                const timeSpans = element.querySelector('.time-wrapper');
+                if (timeSpans) {
+                     timeSpans.innerHTML = `
+                        <span class="main-time">${mmss}</span>
+                        <span class="hundredths">.${cs}</span>
+                    `;
+                }
+            } else {
+                 // Si c'est la première fois ou si l'élément a été perdu, recréer l'ensemble
+                 element.innerHTML = `
+                    <div id="indicator${player}" class="active-indicator"></div>
+                    <span class="time-wrapper">
+                        <span class="main-time">${mmss}</span>
+                        <span class="hundredths">.${cs}</span>
+                    </span>
+                 `;
+            }
+
 
             const baseColor1 = '#1e293b'; 
             const baseColor2 = '#f1f5f9'; 
@@ -491,20 +513,20 @@
                 winnerOverlayEl.classList.add('hidden');
             }
 
-            // *** MISE À JOUR CRITIQUE : PASTILLE VISIBLE MÊME EN PAUSE ***
-             const currentIndicatorEl = document.getElementById(`indicator${player}`);
-             if (currentIndicatorEl) {
-                 currentIndicatorEl.classList.remove('active-p1-white', 'active-p2-dark');
-                 
-                 // Condition pour afficher la pastille: Le jeu est en cours ET c'est le tour de ce joueur.
-                 if (isActivePlayer) {
-                     currentIndicatorEl.classList.add(player === 1 ? 'active-p1-white' : 'active-p2-dark');
-                 }
-                 // Si c'est en pause, on enlève l'ombre de la zone active pour indiquer l'état "dormant"
-                 if (isActivePlayer && !isTicking) {
-                    zone.classList.remove('shadow-2xl'); 
-                 }
-             }
+            // MISE À JOUR CRITIQUE : PASTILLE VISIBLE MÊME EN PAUSE
+            const currentIndicatorEl = document.getElementById(`indicator${player}`);
+            if (currentIndicatorEl) {
+                currentIndicatorEl.classList.remove('active-p1-white', 'active-p2-dark');
+                
+                // Condition pour afficher la pastille: Le jeu est en cours ET c'est le tour de ce joueur.
+                if (isActivePlayer) {
+                    currentIndicatorEl.classList.add(player === 1 ? 'active-p1-white' : 'active-p2-dark');
+                }
+                // Si c'est en pause, on enlève l'ombre de la zone active pour indiquer l'état "dormant"
+                if (isActivePlayer && !isTicking) {
+                   zone.classList.remove('shadow-2xl'); 
+                }
+            }
         }
 
         function tick() {
@@ -662,7 +684,7 @@
             
             const isGameOver = winnerPlayer !== 0;
             
-            // 1. Visibilité du bouton principal : Seulement si la partie est en cours (démarré ou en pause)
+            // 1. Visibilité du bouton principal : Seulement si la partie est initialisée et non terminée
             mainButtonEl.classList.toggle('hidden', !isRunning || isGameOver);
 
 
@@ -681,27 +703,22 @@
 
             if (isDesktopMode) {
                 // *** MODE DESKTOP ***
-                // Toujours Pause/Play, toujours Blanc Transparent (comme demandé)
                 if (isTicking) {
                     iconHTML = ICON_PAUSE;
                 } else { 
                     iconHTML = ICON_PLAY;
                 }
-                // Blanc Transparent (bg-white/30) est appliqué pour le mode desktop
                 buttonBaseClasses = 'bg-white/30 border border-gray-400 text-gray-800 hover:bg-white/50';
                 
             } else {
                 // *** MODE MOBILE (Logique Cadenas) ***
                 if (isButtonLocked) {
-                    // État Cadenas: Verrouillé par défaut -> Fond Blanc Transparent (comme demandé)
                     iconHTML = ICON_LOCK;
                     buttonBaseClasses = 'bg-white/30 border border-gray-400 text-gray-800 hover:bg-white/50'; 
                 } else if (isTicking) {
-                    // Ticking: Icône Pause (ROUGE)
                     iconHTML = ICON_PAUSE;
                     buttonBaseClasses = 'bg-red-600 hover:bg-red-700 text-white';
                 } else if (isRunning && !isTicking) {
-                    // Paused: Icône Lecture (Reprendre) (VERT)
                     iconHTML = ICON_PLAY;
                     buttonBaseClasses = 'bg-green-600 hover:bg-green-700 text-white';
                 }
@@ -714,16 +731,27 @@
             mainButtonEl.style.cursor = 'pointer';
 
             // 3. Contrôle de la visibilité des autres boutons de contrôle
-            const isControlVisible = winnerPlayer !== 0 || !isRunning; 
-            document.getElementById('settings-button').classList.toggle('hidden', !isControlVisible);
+            // Les boutons sont visibles SI :
+            // a) Le jeu n'a pas encore démarré (isRunning = false)
+            // b) Le jeu est terminé (winnerPlayer != 0)
+            // c) Le jeu est en pause (isRunning = true ET isTicking = false)
+            
+            const isControlVisible = !isRunning || isGameOver || (isRunning && !isTicking); 
+            
+            settingsButtonEl.classList.toggle('hidden', !isControlVisible);
             resetButtonEl.classList.toggle('hidden', !isControlVisible);
-            document.getElementById('elo-button').classList.toggle('hidden', !isControlVisible);
+            
+            // Le bouton ELO/Retour est toujours visible quand les autres contrôles le sont
+            eloButtonEl.classList.toggle('hidden', !isControlVisible);
+            eloButtonEl.innerHTML = ICON_BACK; // Assure que c'est l'icône de retour (flèche gauche)
+
         }
 
         // --- Logique des Réglages (Mode Édition) ---
 
         function toggleSettings(show, event) {
-            if (isRunning) return; 
+            // Permet l'ouverture des réglages même en pause, mais pas quand le temps défile
+            if (isTicking) return; 
             
             if (show) {
                 const minutes = Math.floor(initialTimeTotalSeconds / 60);
